@@ -30,7 +30,7 @@ export default function HomeScreen({ navigation }) {
 
         <TouchableOpacity 
           style={styles.card}
-          onPress={() => alert("Fonctionnalité 'Carte Interactive' bientot disponible !")}
+          onPress={() => navigation.navigate('DepthMap')}
         >
           <Text style={styles.cardTitle}>Carte Interactive</Text>
           <Text style={styles.cardDesc}>Visualisation globale de vos données sur le terrain</Text>

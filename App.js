@@ -10,6 +10,9 @@ import HomeScreen from './src/screens/HomeScreen';
 import ProjectListScreen from './src/screens/ProjectListScreen';
 import ProjectDetailScreen from './src/screens/ProjectDetailScreen';
 import PileDetailScreen from './src/screens/PileDetailScreen';
+import ProjectPlanScreen from './src/screens/ProjectPlanScreen';
+import DepthMapScreen from './src/screens/DepthMapScreen';
+import ProjectDocsScreen from './src/screens/ProjectDocsScreen';
 import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 import { theme } from './src/theme/Theme';
 
@@ -74,6 +77,19 @@ export default function App() {
             <Stack.Screen 
               name="PileDetail" 
               component={PileDetailScreen} 
+            />
+            <Stack.Screen 
+              name="ProjectPlan" 
+              component={ProjectPlanScreen} 
+            />
+            <Stack.Screen 
+              name="ProjectDocs" 
+              component={ProjectDocsScreen} 
+            />
+            <Stack.Screen 
+              name="DepthMap" 
+              component={DepthMapScreen} 
+              options={{ headerShown: false }}
             />
           </Stack.Group>
         ) : (
