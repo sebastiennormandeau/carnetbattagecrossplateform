@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAdmin() {
+      return request.auth != null &&
+             exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    }
+
+    match /users/{userId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin() || request.auth.uid == userId;
+    }
+
+    match /admins/{userId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin(); 
+    }
+
+    match /projects/{projectId} {
+      allow read, write: if isAdmin() || 
+                             resource.data.ownerUid == request.auth.uid ||
+                             (resource.data.allowedUsers != null && request.auth.uid in resource.data.allowedUsers);
+      
+      allow create: if request.auth != null;
+
+      match /piles/{pileId} {
+        allow read, write: if isAdmin() || 
+                               get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
+                               (get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers);
+      }
+      match /photos/{photoId} {
+        allow read, write: if isAdmin() || 
+                               get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
+                               (get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers);
+      }
+      match /docs/{docId} {
+        allow read, write: if isAdmin() || 
+                               get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
+                               (get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers);
+      }
+      match /hotspots/{hotspotId} {
+        allow read, write: if isAdmin() || 
+                               get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
+                               (get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.allowedUsers);
+      }
+    }
+
+    match /map_points/{pointId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
+  }
+}

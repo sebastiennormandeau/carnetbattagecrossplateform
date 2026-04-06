@@ -1,0 +1,37 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isAdmin() {
+      return request.auth != null &&
+             firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid)) &&
+             firestore.get(/databases/(default)/documents/admins/$(request.auth.uid)).data.enabled == true;
+    }
+
+    function hasProjectAccess(projectId) {
+       let projectDoc = firestore.get(/databases/(default)/documents/projects/$(projectId));
+       return request.auth != null && 
+              (
+                 projectDoc.data.ownerUid == request.auth.uid || 
+                 (projectDoc.data.allowedUsers != null && request.auth.uid in projectDoc.data.allowedUsers)
+              );
+    }
+
+    match /projects/{projectId}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin() || hasProjectAccess(projectId);
+    }
+
+    // --- CHEMINS LÉGACY (NE PAS SUPPRIMER) ---
+    // Ces règles sont obligatoires pour les anciens projets créés avant la migration, 
+    // qui utilisent les dossiers "plans" et "project_photos".
+    match /plans/{ownerUid}/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin() || request.auth.uid == ownerUid;
+    }
+
+    match /project_photos/{ownerUid}/{allPaths=**} {
+      allow read, write: if isAdmin() || request.auth.uid == ownerUid;
+    }
+  }
+}

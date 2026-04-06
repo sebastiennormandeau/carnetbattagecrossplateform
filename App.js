@@ -13,6 +13,7 @@ import PileDetailScreen from './src/screens/PileDetailScreen';
 import ProjectPlanScreen from './src/screens/ProjectPlanScreen';
 import DepthMapScreen from './src/screens/DepthMapScreen';
 import ProjectDocsScreen from './src/screens/ProjectDocsScreen';
+import AdminScreen from './src/screens/AdminScreen';
 import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 import { theme } from './src/theme/Theme';
 
@@ -89,6 +90,11 @@ export default function App() {
             <Stack.Screen 
               name="DepthMap" 
               component={DepthMapScreen} 
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen 
+              name="Admin" 
+              component={AdminScreen} 
               options={{ headerShown: false }}
             />
           </Stack.Group>

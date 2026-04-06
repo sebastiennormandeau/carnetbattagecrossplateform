@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
-import { auth } from '../config/firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth, db } from '../config/firebase';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { theme } from '../theme/Theme';
 
 export default function LoginScreen({ navigation }) {
@@ -17,8 +18,24 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // If successful, the auth state listener (which we'll set up in App.js) will handle navigation
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      
+      // Mirroring et vérification de bannissement
+      const userRef = doc(db, 'users', cred.user.uid);
+      const userSnap = await getDoc(userRef);
+      
+      if (userSnap.exists() && userSnap.data().banned === true) {
+         await signOut(auth);
+         Alert.alert('Accès refusé', 'Votre compte a été banni par un administrateur.');
+         return;
+      }
+      
+      await setDoc(userRef, {
+         email: cred.user.email,
+         uid: cred.user.uid,
+         lastLogin: Date.now()
+      }, { merge: true });
+
     } catch (error) {
       console.error("Login error:", error);
       Alert.alert('Erreur de connexion', error.message);

@@ -1,10 +1,28 @@
-import React, { useLayoutEffect } from 'react';
+import React, { useLayoutEffect, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
-import { auth } from '../config/firebase';
+import { auth, db } from '../config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { theme } from '../theme/Theme';
 
 export default function HomeScreen({ navigation }) {
-  
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (auth.currentUser) {
+        try {
+          const snap = await getDoc(doc(db, 'admins', auth.currentUser.uid));
+          if (snap.exists() && snap.data().enabled === true) {
+            setIsAdmin(true);
+          }
+        } catch (e) {
+          console.log("Erreur admin:", e);
+        }
+      }
+    };
+    checkAdmin();
+  }, []);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       title: 'Accueil',
@@ -43,6 +61,16 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.cardTitle}>Fiche d"inspection</Text>
           <Text style={styles.cardDesc}>Rapports et vérifications des équipements</Text>
         </TouchableOpacity>
+
+        {isAdmin && (
+           <TouchableOpacity 
+             style={[styles.card, { borderColor: theme.colors.primary }]}
+             onPress={() => navigation.navigate('Admin')}
+           >
+             <Text style={styles.cardTitle}>Autorisations (Admin)</Text>
+             <Text style={styles.cardDesc}>Gérer les accès utilisateurs et les délégations de projets</Text>
+           </TouchableOpacity>
+        )}
       </View>
 
     </View>

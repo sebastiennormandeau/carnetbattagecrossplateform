@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { db, auth } from '../config/firebase';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
 import { theme } from '../theme/Theme';
 
 export default function ProjectListScreen({ navigation }) {
@@ -12,26 +12,54 @@ export default function ProjectListScreen({ navigation }) {
     const user = auth.currentUser;
     if (!user) return;
 
-    // Fetch projects where the current user is the owner
-    const q = query(
-      collection(db, 'projects'),
-      where('ownerUid', '==', user.uid)
-    );
+    let unsubscribeProjects = () => {};
 
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const projectsData = [];
-      querySnapshot.forEach((doc) => {
-        projectsData.push({ id: doc.id, ...doc.data() });
-      });
-      setProjects(projectsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching projects:", error);
-      setLoading(false);
-    });
+    const loadProjects = async () => {
+      try {
+        const adminSnap = await getDoc(doc(db, 'admins', user.uid));
+        const isAdmin = adminSnap.exists() && adminSnap.data().enabled === true;
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
+        if (isAdmin) {
+          unsubscribeProjects = onSnapshot(collection(db, 'projects'), (querySnapshot) => {
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setProjects(data);
+            setLoading(false);
+          });
+        } else {
+          const qOwner = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
+          const qAllowed = query(collection(db, 'projects'), where('allowedUsers', 'array-contains', user.uid));
+          
+          let listOwner = [];
+          let listAllowed = [];
+          
+          const mergeLists = () => {
+             const map = new Map();
+             listOwner.forEach(p => map.set(p.id, p));
+             listAllowed.forEach(p => map.set(p.id, p));
+             setProjects(Array.from(map.values()));
+             setLoading(false);
+          };
+
+          const un1 = onSnapshot(qOwner, snap => {
+             listOwner = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+             mergeLists();
+          });
+          const un2 = onSnapshot(qAllowed, snap => {
+             listAllowed = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+             mergeLists();
+          });
+
+          unsubscribeProjects = () => { un1(); un2(); };
+        }
+      } catch (error) {
+        console.error("Error fetching projects:", error);
+        setLoading(false);
+      }
+    };
+
+    loadProjects();
+
+    return () => unsubscribeProjects();
   }, []);
 
   const renderItem = ({ item }) => (

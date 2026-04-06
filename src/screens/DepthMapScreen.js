@@ -3,14 +3,15 @@ import { View, StyleSheet, Text, Switch, TouchableOpacity, Modal, TextInput, Ale
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Heatmap, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { collection, onSnapshot, addDoc, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
+import { db, auth } from '../config/firebase';
 import { theme } from '../theme/Theme';
 
 export default function DepthMapScreen({ navigation }) {
     const [projects, setProjects] = useState([]);
     const [history, setHistory] = useState([]);
     const [heatmapEnabled, setHeatmapEnabled] = useState(true);
+    const [isAdmin, setIsAdmin] = useState(false);
 
     // UI states
     const [addPicking, setAddPicking] = useState(false);
@@ -66,6 +67,22 @@ export default function DepthMapScreen({ navigation }) {
         });
 
         return () => { unsubProjects(); unsubHistory(); };
+    }, []);
+
+    useEffect(() => {
+        const checkAdmin = async () => {
+            if (auth.currentUser) {
+                try {
+                    const snap = await getDoc(doc(db, 'admins', auth.currentUser.uid));
+                    if (snap.exists() && snap.data().enabled === true) {
+                        setIsAdmin(true);
+                    }
+                } catch (e) {
+                    console.log("Erreur admin:", e);
+                }
+            }
+        };
+        checkAdmin();
     }, []);
 
     const markers = useMemo(() => [...projects, ...history], [projects, history]);
@@ -171,18 +188,20 @@ export default function DepthMapScreen({ navigation }) {
                         <TouchableOpacity style={styles.btnAction} onPress={centerAll}>
                             <Text style={styles.btnText}>Centrer</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.btnAction, { backgroundColor: theme.colors.primary }]}
-                            onPress={() => {
-                                setSelected(null);
-                                resetDraft();
-                                setAddForm(false);
-                                setAddPicking(true);
-                                Alert.alert("Placement", "Maintenez votre doigt sur la carte pour placer le point.");
-                            }}
-                        >
-                            <Text style={[styles.btnText, { color: '#121212' }]}>Ajouter</Text>
-                        </TouchableOpacity>
+                        {isAdmin && (
+                            <TouchableOpacity
+                                style={[styles.btnAction, { backgroundColor: theme.colors.primary }]}
+                                onPress={() => {
+                                    setSelected(null);
+                                    resetDraft();
+                                    setAddForm(false);
+                                    setAddPicking(true);
+                                    Alert.alert("Placement", "Maintenez votre doigt sur la carte pour placer le point.");
+                                }}
+                            >
+                                <Text style={[styles.btnText, { color: '#121212' }]}>Ajouter</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 </View>
             </SafeAreaView>

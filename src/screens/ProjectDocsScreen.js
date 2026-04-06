@@ -4,9 +4,9 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Sharing from 'expo-sharing';
-import { db, storage } from '../config/firebase';
+import { auth, db, storage } from '../config/firebase';
 import { collection, addDoc, onSnapshot, deleteDoc, doc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
+import { ref, uploadBytes, uploadString, getDownloadURL, deleteObject } from 'firebase/storage';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme/Theme';
 
@@ -48,13 +48,57 @@ export default function ProjectDocsScreen({ route, navigation }) {
             setUploading(true);
             
             const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            const storagePath = `projects/${projectId}/docs/${Date.now()}_${safeName}`;
+            // On utilise "documents" pour matcher EXACTEMENT votre règle Firebase :
+            // match /projects/{projectId}/documents/{allPaths=**}
+            const storagePath = `projects/${projectId}/documents/${Date.now()}_${safeName}`;
             
-            const encodedUri = encodeURI(file.uri);
-            const response = await fetch(encodedUri);
-            const blob = await response.blob();
-            
-            await uploadBytes(ref(storage, storagePath), blob);
+            if (Platform.OS === 'web') {
+                const blob = file.file || await (await fetch(file.uri)).blob();
+                await uploadBytes(ref(storage, storagePath), blob);
+            } else {
+                // SOLUTION ARCHITECTURALE DÉFINITIVE (Manuel Firebase Resumable Upload)
+                // 1. On initie l'upload avec un fetch HTTP standard (Léger, aucun Blob, passe les règles Firebase Auth)
+                const bucket = storage.app.options.storageBucket;
+                const initUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(storagePath)}`;
+                
+                const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+                
+                const initResponse = await fetch(initUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-goog-upload-protocol': 'resumable',
+                        'x-goog-upload-command': 'start',
+                        'Authorization': `Firebase ${token}` /* Indispensable pour que Firebase lise le token */
+                    },
+                    body: JSON.stringify({ contentType: file.mimeType || 'application/octet-stream' })
+                });
+                
+                if (!initResponse.ok) {
+                    throw new Error("Impossible de démarrer l'upload: " + await initResponse.text());
+                }
+                
+                const uploadUrl = initResponse.headers.get('x-goog-upload-url');
+                
+                if (!uploadUrl) {
+                    throw new Error("URL Resumable manquante retournée par Firebase.");
+                }
+                
+                // 2. On envoie physiquement le fichier en streaming avec le moteur Natif Expo FileSystem.
+                // Contourne 100% les limites de mémoire de React Native (les "Network request failed" sur gros Blob)
+                const uploadResult = await FileSystem.uploadAsync(uploadUrl, file.uri, {
+                    httpMethod: 'PUT',
+                    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                    headers: {
+                        'x-goog-upload-command': 'upload, finalize',
+                        'x-goog-upload-offset': '0'
+                    }
+                });
+                
+                if (uploadResult.status !== 200) {
+                    throw new Error("Erreur de transfert natif: " + uploadResult.body);
+                }
+            }
             
             await addDoc(collection(db, 'projects', projectId, 'docs'), {
                 name: file.name,
@@ -78,6 +122,11 @@ export default function ProjectDocsScreen({ route, navigation }) {
             Alert.alert("Erreur", "Lien de téléchargement introuvable.");
             return;
         }
+        if (Platform.OS === 'web') {
+            window.open(docItem.url, '_blank');
+            return;
+        }
+
         try {
             Alert.alert("Téléchargement", "Ouverture du document en cours...");
             const safeName = docItem.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
