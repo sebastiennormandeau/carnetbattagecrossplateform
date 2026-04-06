@@ -6,21 +6,34 @@ import { theme } from '../theme/Theme';
 
 export default function HomeScreen({ navigation }) {
   const [isAdmin, setIsAdmin] = useState(false);
+  const [tools, setTools] = useState({ carnet: true, carte: true, inspection: true });
 
   useEffect(() => {
-    const checkAdmin = async () => {
+    const checkPrivileges = async () => {
       if (auth.currentUser) {
         try {
-          const snap = await getDoc(doc(db, 'admins', auth.currentUser.uid));
-          if (snap.exists() && snap.data().enabled === true) {
+          // Check Admin
+          const adminSnap = await getDoc(doc(db, 'admins', auth.currentUser.uid));
+          if (adminSnap.exists() && adminSnap.data().enabled === true) {
             setIsAdmin(true);
           }
+          
+          // Check Tools Permissions
+          const userSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
+          if (userSnap.exists() && userSnap.data().tools) {
+             // Fusionne les permissions pour que celles non-définies restent 'true'
+             setTools({
+                 carnet: userSnap.data().tools.carnet !== false,
+                 carte: userSnap.data().tools.carte !== false,
+                 inspection: userSnap.data().tools.inspection !== false
+             });
+          }
         } catch (e) {
-          console.log("Erreur admin:", e);
+          console.log("Erreur privileges:", e);
         }
       }
     };
-    checkAdmin();
+    checkPrivileges();
   }, []);
 
   useLayoutEffect(() => {
@@ -38,29 +51,35 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <View style={styles.menuContainer}>
-        <TouchableOpacity 
-          style={styles.card}
-          onPress={() => navigation.navigate('Projects')}
-        >
-          <Text style={styles.cardTitle}>Carnet de battage</Text>
-          <Text style={styles.cardDesc}>Gestion de tous vos projets et listes de pieux</Text>
-        </TouchableOpacity>
+        {tools.carnet && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => navigation.navigate('Projects')}
+          >
+            <Text style={styles.cardTitle}>Carnet de battage</Text>
+            <Text style={styles.cardDesc}>Gestion de tous vos projets et listes de pieux</Text>
+          </TouchableOpacity>
+        )}
 
-        <TouchableOpacity 
-          style={styles.card}
-          onPress={() => navigation.navigate('DepthMap')}
-        >
-          <Text style={styles.cardTitle}>Carte Interactive</Text>
-          <Text style={styles.cardDesc}>Visualisation globale de vos données sur le terrain</Text>
-        </TouchableOpacity>
+        {tools.carte && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => navigation.navigate('DepthMap')}
+          >
+            <Text style={styles.cardTitle}>Carte Interactive</Text>
+            <Text style={styles.cardDesc}>Visualisation globale de vos données sur le terrain</Text>
+          </TouchableOpacity>
+        )}
 
-        <TouchableOpacity 
-          style={styles.card}
-          onPress={() => alert("Fonctionnalité 'Fiche d'inspection' bientot disponible !")}
-        >
-          <Text style={styles.cardTitle}>Fiche d"inspection</Text>
-          <Text style={styles.cardDesc}>Rapports et vérifications des équipements</Text>
-        </TouchableOpacity>
+        {tools.inspection && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => alert("Fonctionnalité 'Fiche d'inspection' bientot disponible !")}
+          >
+            <Text style={styles.cardTitle}>Fiche d"inspection</Text>
+            <Text style={styles.cardDesc}>Rapports et vérifications des équipements</Text>
+          </TouchableOpacity>
+        )}
 
         {isAdmin && (
            <TouchableOpacity 

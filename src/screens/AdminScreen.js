@@ -62,19 +62,26 @@ export default function AdminScreen({ navigation }) {
         }
     };
 
-    const toggleProjectAccess = async (projectId, userId, allowedUsersArr) => {
-        const currentArr = allowedUsersArr || [];
-        const isAllowed = currentArr.includes(userId);
-        
-        let newArr = [...currentArr];
-        if (isAllowed) {
-            newArr = newArr.filter(id => id !== userId);
-        } else {
-            newArr.push(userId);
+    const toggleTool = async (userId, toolName, currentTools) => {
+        // Defaults to true if not defined
+        const tools = currentTools || { carnet: true, carte: true, inspection: true };
+        const newVal = tools[toolName] !== undefined ? !tools[toolName] : false; // Because default is true, toggling usually means false
+        try {
+            await setDoc(doc(db, 'users', userId), { tools: { ...tools, [toolName]: newVal } }, { merge: true });
+        } catch (e) {
+            Alert.alert("Erreur", "Impossible de modifier l'outil.");
         }
+    };
+
+    const setProjectAccess = async (projectId, userId, readArr, writeArr, level) => {
+        let r = [...(readArr || [])].filter(id => id !== userId);
+        let w = [...(writeArr || [])].filter(id => id !== userId);
+        
+        if (level === 'READ' || level === 'WRITE') r.push(userId);
+        if (level === 'WRITE') w.push(userId);
 
         try {
-            await updateDoc(doc(db, 'projects', projectId), { allowedUsers: newArr });
+            await updateDoc(doc(db, 'projects', projectId), { readUsers: r, writeUsers: w });
         } catch (e) {
             Alert.alert("Erreur", "Impossible de modifier l'accès au projet.");
         }
@@ -112,9 +119,10 @@ export default function AdminScreen({ navigation }) {
                     renderItem={({ item }) => (
                         <View style={styles.userCard}>
                             <Text style={styles.userEmail}>{item.email}</Text>
+                            
                             <View style={styles.switchesRow}>
                                 <View style={styles.switchGroup}>
-                                    <Text style={styles.switchLabel}>Administrateur</Text>
+                                    <Text style={styles.switchLabel}>Admin</Text>
                                     <Switch 
                                         value={!!adminsMap[item.id]} 
                                         onValueChange={() => toggleAdmin(item.id, !!adminsMap[item.id])}
@@ -129,6 +137,31 @@ export default function AdminScreen({ navigation }) {
                                     />
                                 </View>
                             </View>
+
+                            <View style={styles.toolsRow}>
+                                <View style={styles.switchGroup}>
+                                    <Text style={styles.switchLabel}>Carnet</Text>
+                                    <Switch 
+                                        value={item.tools ? item.tools.carnet !== false : true} 
+                                        onValueChange={() => toggleTool(item.id, 'carnet', item.tools)}
+                                    />
+                                </View>
+                                <View style={styles.switchGroup}>
+                                    <Text style={styles.switchLabel}>Carte</Text>
+                                    <Switch 
+                                        value={item.tools ? item.tools.carte !== false : true} 
+                                        onValueChange={() => toggleTool(item.id, 'carte', item.tools)}
+                                    />
+                                </View>
+                                <View style={styles.switchGroup}>
+                                    <Text style={styles.switchLabel}>Insp.</Text>
+                                    <Switch 
+                                        value={item.tools ? item.tools.inspection !== false : true} 
+                                        onValueChange={() => toggleTool(item.id, 'inspection', item.tools)}
+                                    />
+                                </View>
+                            </View>
+
                         </View>
                     )}
                 />
@@ -142,7 +175,7 @@ export default function AdminScreen({ navigation }) {
                     renderItem={({ item }) => (
                         <TouchableOpacity style={styles.projectCard} onPress={() => setSelectedProject(item)}>
                             <Text style={styles.projectName}>{item.name}</Text>
-                            <Text style={styles.projectDesc}>{(item.allowedUsers || []).length} utilisateur(s) autorisé(s)</Text>
+                            <Text style={styles.projectDesc}>{(item.readUsers || []).length} lecteur(s), {(item.writeUsers || []).length} éditeur(s)</Text>
                             <Text style={styles.projectOwner}>Propriétaire: {item.ownerUid}</Text>
                         </TouchableOpacity>
                     )}
@@ -166,22 +199,49 @@ export default function AdminScreen({ navigation }) {
                         renderItem={({ item }) => {
                             // Find the live project to ensure switch matches reality
                             const liveProj = projects.find(p => p.id === selectedProject.id) || selectedProject;
-                            const isAllowed = (liveProj.allowedUsers || []).includes(item.id);
+                            const isRead = (liveProj.readUsers || []).includes(item.id);
+                            const isWrite = (liveProj.writeUsers || []).includes(item.id);
+                            
                             const isOwner = liveProj.ownerUid === item.id;
                             const isAdminUser = !!adminsMap[item.id];
                             
+                            let currentLevel = 'NONE';
+                            if (isWrite) currentLevel = 'WRITE';
+                            else if (isRead) currentLevel = 'READ';
+
                             return (
                                 <View style={styles.accessRow}>
-                                    <View>
+                                    <View style={{ marginBottom: 10 }}>
                                         <Text style={{ color: 'white', fontSize: 16 }}>{item.email}</Text>
                                         {isOwner && <Text style={{ color: theme.colors.primary, fontSize: 12 }}>Propriétaire natif</Text>}
                                         {isAdminUser && !isOwner && <Text style={{ color: 'orange', fontSize: 12 }}>Accès Admin global</Text>}
                                     </View>
-                                    <Switch 
-                                        value={isAllowed || isOwner || isAdminUser} 
-                                        disabled={isOwner || isAdminUser} // Admins & Owners ALWAYS have access via Firebase Rules
-                                        onValueChange={() => toggleProjectAccess(liveProj.id, item.id, liveProj.allowedUsers)}
-                                    />
+                                    
+                                    <View style={styles.radioGroup}>
+                                        <TouchableOpacity 
+                                            disabled={isOwner || isAdminUser}
+                                            style={[styles.radioBtn, currentLevel === 'NONE' && styles.radioBtnActive, (isOwner || isAdminUser) && {opacity: 0.5}]}
+                                            onPress={() => setProjectAccess(liveProj.id, item.id, liveProj.readUsers, liveProj.writeUsers, 'NONE')}
+                                        >
+                                            <Text style={[styles.radioText, currentLevel === 'NONE' && styles.radioTextActive]}>Aucun</Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity 
+                                            disabled={isOwner || isAdminUser}
+                                            style={[styles.radioBtn, currentLevel === 'READ' && styles.radioBtnActive, (isOwner || isAdminUser) && {opacity: 0.5}]}
+                                            onPress={() => setProjectAccess(liveProj.id, item.id, liveProj.readUsers, liveProj.writeUsers, 'READ')}
+                                        >
+                                            <Text style={[styles.radioText, currentLevel === 'READ' && styles.radioTextActive]}>Lecture</Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity 
+                                            disabled={isOwner || isAdminUser}
+                                            style={[styles.radioBtn, currentLevel === 'WRITE' && styles.radioBtnActive, (isOwner || isAdminUser) && {opacity: 0.5}]}
+                                            onPress={() => setProjectAccess(liveProj.id, item.id, liveProj.readUsers, liveProj.writeUsers, 'WRITE')}
+                                        >
+                                            <Text style={[styles.radioText, currentLevel === 'WRITE' && styles.radioTextActive]}>Écriture</Text>
+                                        </TouchableOpacity>
+                                    </View>
                                 </View>
                             );
                         }}
@@ -215,5 +275,11 @@ const styles = StyleSheet.create({
     projectOwner: { color: theme.colors.textMuted, fontSize: 12 },
     backBtnProj: { marginBottom: 15, padding: 10, backgroundColor: '#333', borderRadius: 8, alignSelf: 'flex-start' },
     projectTitleBig: { fontSize: 22, fontWeight: 'bold', color: 'white', marginBottom: 5 },
-    accessRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: theme.colors.surface, padding: 15, borderRadius: 10, marginBottom: 10 }
+    accessRow: { backgroundColor: theme.colors.surface, padding: 15, borderRadius: 10, marginBottom: 10 },
+    toolsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderColor: theme.colors.border },
+    radioGroup: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 8, padding: 4 },
+    radioBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
+    radioBtnActive: { backgroundColor: '#333' },
+    radioText: { color: theme.colors.textMuted, fontSize: 12 },
+    radioTextActive: { color: 'white', fontWeight: 'bold' }
 });

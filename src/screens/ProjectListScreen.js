@@ -27,7 +27,7 @@ export default function ProjectListScreen({ navigation }) {
           });
         } else {
           const qOwner = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
-          const qAllowed = query(collection(db, 'projects'), where('allowedUsers', 'array-contains', user.uid));
+          const qAllowed = query(collection(db, 'projects'), where('readUsers', 'array-contains', user.uid));
           
           let listOwner = [];
           let listAllowed = [];

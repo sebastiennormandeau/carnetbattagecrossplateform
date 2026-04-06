@@ -15,7 +15,8 @@ export default function ProjectPlanScreen({ route, navigation }) {
   const [pdfUrl, setPdfUrl] = useState(null);
   const [piles, setPiles] = useState([]);
   const [hotspots, setHotspots] = useState([]);
-  const [mode, setMode] = useState('NAV'); // NAV, ADD, DEL
+  const [mode, setMode] = useState('NAV'); // NAV, ADD, DEL, MOVE
+  const [movingHotspotId, setMovingHotspotId] = useState(null);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
@@ -65,10 +66,10 @@ export default function ProjectPlanScreen({ route, navigation }) {
   useEffect(() => {
     if (webViewRef.current && pdfUrl) {
        const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage);
-       const script = `if (typeof updateMarkers === 'function') { updateMarkers(${JSON.stringify(pageHotspots)}, ${JSON.stringify(piles)}, '${mode}'); } true;`;
+       const script = `if (typeof updateMarkers === 'function') { updateMarkers(${JSON.stringify(pageHotspots)}, ${JSON.stringify(piles)}, '${mode}', '${movingHotspotId || ''}'); } true;`;
        webViewRef.current.injectJavaScript(script);
     }
-  }, [hotspots, piles, mode, currentPage, pdfUrl]);
+  }, [hotspots, piles, mode, currentPage, pdfUrl, movingHotspotId]);
 
   const handleMessage = async (event) => {
     try {
@@ -95,25 +96,43 @@ export default function ProjectPlanScreen({ route, navigation }) {
             });
          } else {
             const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage);
-            if (pageHotspots.length === 0) return;
             
             let bestId = null;
             let bestDist = Infinity;
-            for (let h of pageHotspots) {
-               const rawX = h.xNorm !== undefined ? h.xNorm : h.x_norm !== undefined ? h.x_norm : h.xnorm || 0;
-               const rawY = h.yNorm !== undefined ? h.yNorm : h.y_norm !== undefined ? h.y_norm : h.ynorm || 0;
-               const validX = parseFloat(rawX) || 0;
-               const validY = parseFloat(rawY) || 0;
-               
-               const dx = validX - xNorm;
-               const dy = validY - yNorm;
-               const dist = Math.sqrt(dx*dx + dy*dy);
-               if (dist < bestDist) {
-                  bestDist = dist;
-                  bestId = h.id;
+            if (pageHotspots.length > 0) {
+               for (let h of pageHotspots) {
+                  const rawX = h.xNorm !== undefined ? h.xNorm : h.x_norm !== undefined ? h.x_norm : h.xnorm || 0;
+                  const rawY = h.yNorm !== undefined ? h.yNorm : h.y_norm !== undefined ? h.y_norm : h.ynorm || 0;
+                  const validX = parseFloat(rawX) || 0;
+                  const validY = parseFloat(rawY) || 0;
+                  
+                  const dx = validX - xNorm;
+                  const dy = validY - yNorm;
+                  const dist = Math.sqrt(dx*dx + dy*dy);
+                  if (dist < bestDist) {
+                     bestDist = dist;
+                     bestId = h.id;
+                  }
                }
             }
-            if (bestDist < MIN_DIST_THRESHOLD && bestId) {
+
+            if (mode === 'MOVE') {
+               if (movingHotspotId) {
+                  // User selected a new destination for the hotspot
+                  await updateDoc(doc(db, 'projects', projectId, 'hotspots', movingHotspotId), {
+                      xNorm: xNorm, 
+                      yNorm: yNorm, 
+                      x_norm: xNorm, // legacy format
+                      y_norm: yNorm // legacy format
+                  });
+                  setMovingHotspotId(null);
+               } else {
+                  // Select the hotspot to move
+                  if (bestDist < MIN_DIST_THRESHOLD && bestId) {
+                      setMovingHotspotId(bestId);
+                  }
+               }
+            } else if (bestDist < MIN_DIST_THRESHOLD && bestId) {
                const hotspot = pageHotspots.find(h => h.id === bestId);
                
                if (mode === 'DEL') {
@@ -257,7 +276,7 @@ export default function ProjectPlanScreen({ route, navigation }) {
           }));
         });
 
-        window.updateMarkers = function(hotspots, piles, mode) {
+        window.updateMarkers = function(hotspots, piles, mode, movingHotspotId) {
           overlay.innerHTML = '';
           hotspots.forEach(h => {
              const pile = piles.find(p => p.id === h.pileId);
@@ -288,7 +307,17 @@ export default function ProjectPlanScreen({ route, navigation }) {
              div.style.backgroundColor = bgColor;
              div.style.borderColor = borderColor;
              div.style.borderWidth = borderColor === 'white' ? '2px' : '3px'; // Slightly thicker green border to make it pop
-             div.style.transform = 'scale(' + (1 / currentVisualScale) + ')';
+             
+             if (mode === 'MOVE' && h.id === movingHotspotId) {
+                 div.style.borderColor = '#FFEB3B';
+                 div.style.borderWidth = '4px';
+                 div.style.boxShadow = '0 0 10px #FFEB3B';
+                 div.style.zIndex = '1000';
+                 div.style.transform = 'scale(' + (1.2 / currentVisualScale) + ')';
+             } else {
+                 div.style.transform = 'scale(' + (1 / currentVisualScale) + ')';
+             }
+             
              overlay.appendChild(div);
           });
         };
@@ -304,14 +333,17 @@ export default function ProjectPlanScreen({ route, navigation }) {
   return (
     <View style={styles.container}>
       <View style={styles.modeBar}>
-        <Text style={styles.pageText}>Total: {hotspots.length} pts</Text>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'NAV' && styles.modeBtnActive]} onPress={() => setMode('NAV')}>
+        <Text style={{ ...styles.pageText, flex: 1 }}>{hotspots.length} pts</Text>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'NAV' && styles.modeBtnActive]} onPress={() => {setMode('NAV'); setMovingHotspotId(null);}}>
           <Text style={styles.modeBtnText}>NAV</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'ADD' && styles.modeBtnActive]} onPress={() => setMode('ADD')}>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'ADD' && styles.modeBtnActive]} onPress={() => {setMode('ADD'); setMovingHotspotId(null);}}>
           <Text style={styles.modeBtnText}>ADD</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'DEL' && styles.modeBtnActive]} onPress={() => setMode('DEL')}>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'MOVE' && styles.modeBtnActive]} onPress={() => {setMode('MOVE'); setMovingHotspotId(null);}}>
+          <Text style={styles.modeBtnText}>MOVE</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.modeBtn, mode === 'DEL' && styles.modeBtnActive]} onPress={() => {setMode('DEL'); setMovingHotspotId(null);}}>
           <Text style={styles.modeBtnText}>DEL</Text>
         </TouchableOpacity>
       </View>

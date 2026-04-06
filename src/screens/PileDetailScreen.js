@@ -13,8 +13,8 @@ import {
   Platform
 } from 'react-native';
 import { db } from '../config/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { Picker } from '@react-native-picker/picker'; // You'll need to install this
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { Picker } from '@react-native-picker/picker';
 import { theme } from '../theme/Theme';
 
 export default function PileDetailScreen({ route, navigation }) {
@@ -80,7 +80,7 @@ export default function PileDetailScreen({ route, navigation }) {
         depthFt: parseFloat(depth.replace(',', '.')) || 0,
         implanted: implanted,
         rebattage: rebattage,
-        updatedAt: Date.now() // Optional: keep track of when it was modified
+        updatedAt: Date.now()
       };
 
       await updateDoc(pileRef, updatedData);
@@ -96,6 +96,45 @@ export default function PileDetailScreen({ route, navigation }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDelete = () => {
+    Alert.alert(
+      "Supprimer le pieu",
+      "Êtes-vous sûr de vouloir supprimer ce pieu et son repère sur le plan ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { 
+          text: "Supprimer", 
+          style: "destructive",
+          onPress: async () => {
+            setSaving(true);
+            try {
+              // Supprimer le pieu
+              await deleteDoc(doc(db, 'projects', projectId, 'piles', pileId));
+              
+              // Rechercher et supprimer les hotspots rattachés
+              const hotspotsRef = collection(db, 'projects', projectId, 'hotspots');
+              const q = query(hotspotsRef, where('pileId', '==', pileId));
+              const querySnapshot = await getDocs(q);
+              
+              const deletePromises = [];
+              querySnapshot.forEach((docSnap) => {
+                deletePromises.push(deleteDoc(docSnap.ref));
+              });
+              await Promise.all(deletePromises);
+              
+              Alert.alert("Succès", "Le pieu a été supprimé.");
+              navigation.goBack();
+            } catch (error) {
+              console.error("Error deleting pile:", error);
+              Alert.alert("Erreur", "Impossible de supprimer le pieu.");
+              setSaving(false);
+            }
+          }
+        }
+      ]
+    );
   };
 
   if (loading) {
@@ -195,6 +234,13 @@ export default function PileDetailScreen({ route, navigation }) {
             title={saving ? "Enregistrement..." : "Enregistrer"} 
             onPress={handleSave} 
             color={theme.colors.primaryDark}
+            disabled={saving}
+          />
+          <View style={{ height: 15 }} />
+          <Button 
+            title="Supprimer ce pieu" 
+            onPress={handleDelete} 
+            color={theme.colors.error}
             disabled={saving}
           />
         </View>
