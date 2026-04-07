@@ -14,6 +14,7 @@ import ProjectPlanScreen from './src/screens/ProjectPlanScreen';
 import DepthMapScreen from './src/screens/DepthMapScreen';
 import ProjectDocsScreen from './src/screens/ProjectDocsScreen';
 import AdminScreen from './src/screens/AdminScreen';
+import PunchScreen from './src/screens/PunchScreen';
 import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 import { theme } from './src/theme/Theme';
 
@@ -96,6 +97,11 @@ export default function App() {
               name="Admin" 
               component={AdminScreen} 
               options={{ headerShown: false }}
+            />
+            <Stack.Screen 
+              name="Punch" 
+              component={PunchScreen} 
+              options={{ title: 'Horodateur' }}
             />
           </Stack.Group>
         ) : (

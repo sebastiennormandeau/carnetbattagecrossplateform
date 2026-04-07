@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Switch, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Switch, ScrollView, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
@@ -9,8 +9,11 @@ export default function AdminScreen({ navigation }) {
     const [users, setUsers] = useState([]);
     const [adminsMap, setAdminsMap] = useState({});
     const [projects, setProjects] = useState([]);
-    const [selectedTab, setSelectedTab] = useState('USERS'); // USERS or PROJECTS
+    const [selectedTab, setSelectedTab] = useState('USERS'); // USERS, PROJECTS or SHIFTS
     const [selectedProject, setSelectedProject] = useState(null);
+    const [shifts, setShifts] = useState([]);
+    const [deductLunch, setDeductLunch] = useState(false);
+    const [lunchMinutes, setLunchMinutes] = useState('30');
 
     useEffect(() => {
         // Fetch all users
@@ -36,7 +39,14 @@ export default function AdminScreen({ navigation }) {
             setProjects(data);
         });
 
-        return () => { unsubUsers(); unsubAdmins(); unsubProjects(); };
+        // Fetch shifts
+        const unsubShifts = onSnapshot(collection(db, 'shifts'), snapshot => {
+            const data = [];
+            snapshot.forEach(docSnap => data.push({ id: docSnap.id, ...docSnap.data() }));
+            setShifts(data);
+        });
+
+        return () => { unsubUsers(); unsubAdmins(); unsubProjects(); unsubShifts(); };
     }, []);
 
     const toggleAdmin = async (userId, currentStatus) => {
@@ -105,9 +115,15 @@ export default function AdminScreen({ navigation }) {
                 </TouchableOpacity>
                 <TouchableOpacity 
                     style={[styles.tab, selectedTab === 'PROJECTS' && styles.activeTab]} 
-                    onPress={() => setSelectedTab('PROJECTS')}
+                    onPress={() => { setSelectedTab('PROJECTS'); setSelectedProject(null); }}
                 >
                     <Text style={[styles.tabText, selectedTab === 'PROJECTS' && styles.activeTabText]}>Accès Projets</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.tab, selectedTab === 'SHIFTS' && styles.activeTab]} 
+                    onPress={() => { setSelectedTab('SHIFTS'); setSelectedProject(null); }}
+                >
+                    <Text style={[styles.tabText, selectedTab === 'SHIFTS' && styles.activeTabText]}>Horodateur</Text>
                 </TouchableOpacity>
             </View>
 
@@ -158,6 +174,13 @@ export default function AdminScreen({ navigation }) {
                                     <Switch 
                                         value={item.tools ? item.tools.inspection !== false : true} 
                                         onValueChange={() => toggleTool(item.id, 'inspection', item.tools)}
+                                    />
+                                </View>
+                                <View style={styles.switchGroup}>
+                                    <Text style={styles.switchLabel}>Punch</Text>
+                                    <Switch 
+                                        value={item.tools ? item.tools.punch !== false : true} 
+                                        onValueChange={() => toggleTool(item.id, 'punch', item.tools)}
                                     />
                                 </View>
                             </View>
@@ -247,6 +270,91 @@ export default function AdminScreen({ navigation }) {
                         }}
                     />
                 </View>
+            )}
+
+            {selectedTab === 'SHIFTS' && (
+                <>
+                <View style={{ padding: 20, backgroundColor: theme.colors.surface, marginHorizontal: 20, marginTop: 20, borderRadius: 10, borderWidth: 1, borderColor: '#333' }}>
+                    <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 15 }}>Paramètres de Calcul</Text>
+                    
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                        <Text style={{ color: theme.colors.textMuted }}>Déduire automatiquement le dîner</Text>
+                        <Switch 
+                            value={deductLunch} 
+                            onValueChange={setDeductLunch}
+                            trackColor={{ true: theme.colors.primaryDark, false: theme.colors.border }}
+                            thumbColor={theme.colors.primary}
+                        />
+                    </View>
+                    
+                    {deductLunch && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ color: theme.colors.textMuted }}>Durée du dîner (minutes)</Text>
+                            <TextInput 
+                                style={{ backgroundColor: theme.colors.background, color: 'white', padding: 8, borderRadius: 5, width: 80, textAlign: 'center', borderWidth: 1, borderColor: theme.colors.border }}
+                                value={lunchMinutes}
+                                onChangeText={setLunchMinutes}
+                                keyboardType="numeric"
+                            />
+                        </View>
+                    )}
+                    <Text style={{ color: theme.colors.primary, fontSize: 12, marginTop: 15 }}>* Le système soustraira ce temps uniquement pour les quarts de travail qui ont débuté avant 12h00 ET se sont terminés après 12h00.</Text>
+                </View>
+
+                <FlatList
+                    data={shifts.sort((a,b) => {
+                        const timeA = a.punchInTime ? a.punchInTime.toMillis() : 0;
+                        const timeB = b.punchInTime ? b.punchInTime.toMillis() : 0;
+                        return timeB - timeA;
+                    })}
+                    keyExtractor={item => item.id}
+                    contentContainerStyle={{ padding: 20 }}
+                    renderItem={({ item }) => {
+                        const inTimeMs = item.punchInTime ? item.punchInTime.toMillis() : null;
+                        const outTimeMs = item.punchOutTime ? item.punchOutTime.toMillis() : null;
+                        
+                        const inTime = inTimeMs ? new Date(inTimeMs).toLocaleString() : 'Erreur réseau';
+                        const outTime = outTimeMs ? new Date(outTimeMs).toLocaleString() : 'En cours...';
+                        
+                        let durationText = '';
+                        if (inTimeMs && outTimeMs) {
+                            let diffMs = outTimeMs - inTimeMs;
+                            let hadLunch = false;
+                            
+                            if (deductLunch) {
+                                const inDate = new Date(inTimeMs);
+                                const outDate = new Date(outTimeMs);
+                                
+                                if (inDate.getHours() < 12 && outDate.getHours() >= 12) {
+                                    const lunchMs = (parseInt(lunchMinutes) || 0) * 60 * 1000;
+                                    diffMs -= lunchMs;
+                                    if (diffMs < 0) diffMs = 0;
+                                    hadLunch = true;
+                                }
+                            }
+                            
+                            const diffHours = diffMs / (1000 * 60 * 60);
+                            durationText = `${diffHours.toFixed(2)} h ${hadLunch ? '(Dîner déduit)' : ''}`;
+                        }
+
+                        return (
+                            <View style={styles.userCard}>
+                                <Text style={styles.projectName}>{item.userEmail || item.userId}</Text>
+                                <Text style={styles.projectOwner}>Chantier : {item.projectName}</Text>
+                                <View style={{ marginTop: 10 }}>
+                                    <Text style={{ color: theme.colors.success, fontWeight: 'bold' }}>Entrée : {inTime}</Text>
+                                    <Text style={{ color: item.punchOutTime ? theme.colors.error : theme.colors.primary, fontWeight: 'bold' }}>Sortie : {outTime}</Text>
+                                </View>
+                                {durationText ? (
+                                    <View style={{ marginTop: 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#333' }}>
+                                        <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>Temps total : {durationText}</Text>
+                                    </View>
+                                ) : null}
+                            </View>
+                        );
+                    }}
+                />
+                </>
             )}
 
         </SafeAreaView>

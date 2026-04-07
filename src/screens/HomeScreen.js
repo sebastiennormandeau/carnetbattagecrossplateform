@@ -6,7 +6,7 @@ import { theme } from '../theme/Theme';
 
 export default function HomeScreen({ navigation }) {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [tools, setTools] = useState({ carnet: true, carte: true, inspection: true });
+  const [tools, setTools] = useState({ carnet: true, carte: true, inspection: true, punch: true });
 
   useEffect(() => {
     const checkPrivileges = async () => {
@@ -25,7 +25,8 @@ export default function HomeScreen({ navigation }) {
              setTools({
                  carnet: userSnap.data().tools.carnet !== false,
                  carte: userSnap.data().tools.carte !== false,
-                 inspection: userSnap.data().tools.inspection !== false
+                 inspection: userSnap.data().tools.inspection !== false,
+                 punch: userSnap.data().tools.punch !== false
              });
           }
         } catch (e) {
@@ -68,6 +69,16 @@ export default function HomeScreen({ navigation }) {
           >
             <Text style={styles.cardTitle}>Carte Interactive</Text>
             <Text style={styles.cardDesc}>Visualisation globale de vos données sur le terrain</Text>
+          </TouchableOpacity>
+        )}
+
+        {tools.punch && (
+          <TouchableOpacity 
+            style={styles.card}
+            onPress={() => navigation.navigate('Punch')}
+          >
+            <Text style={styles.cardTitle}>Horodateur 🕒</Text>
+            <Text style={styles.cardDesc}>Signalez votre arrivée et départ géolocalisés</Text>
           </TouchableOpacity>
         )}
 
