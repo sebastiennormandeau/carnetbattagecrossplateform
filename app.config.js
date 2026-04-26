@@ -1,4 +1,6 @@
-{
+import 'dotenv/config';
+
+export default {
   "expo": {
     "name": "CarnetBattageCrossPlatform",
     "slug": "CarnetBattageCrossPlatform",
@@ -12,28 +14,37 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.VibeCodingMind.PilingWork",
+      "config": {
+        "googleMapsApiKey": process.env.GOOGLE_MAPS_API_KEY_IOS
+      }
     },
     "android": {
-      "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyBsU_Xl8iU_CtnYql03k2vk9fIIFigdBIg"
-        }
-      },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.anonymous.CarnetBattageCrossPlatform"
+      "package": "com.VibeCodingMind.PilingWork",
+      "config": {
+        "googleMaps": {
+          "apiKey": process.env.GOOGLE_MAPS_API_KEY_ANDROID
+        }
+      }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "config": {
+        "googleMaps": {
+          "apiKey": process.env.GOOGLE_MAPS_API_KEY_WEB
+        }
+      }
     },
     "plugins": [
       "expo-sharing",
       "expo-mail-composer"
     ]
   }
-}
+};

@@ -15,8 +15,11 @@ import DepthMapScreen from './src/screens/DepthMapScreen';
 import ProjectDocsScreen from './src/screens/ProjectDocsScreen';
 import AdminScreen from './src/screens/AdminScreen';
 import PunchScreen from './src/screens/PunchScreen';
+import EngineeringScreen from './src/screens/EngineeringScreen';
+import HammerConfigScreen from './src/screens/HammerConfigScreen';
 import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 import { theme } from './src/theme/Theme';
+import usePilingStore from './src/store/usePilingStore';
 
 const Stack = createNativeStackNavigator();
 
@@ -29,6 +32,11 @@ export default function App() {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
+      
+      // Fetch hammers globally only if the user is authenticated
+      if (currentUser) {
+        usePilingStore.getState().fetchHammers();
+      }
     });
 
     return unsubscribe;
@@ -102,6 +110,16 @@ export default function App() {
               name="Punch" 
               component={PunchScreen} 
               options={{ title: 'Horodateur' }}
+            />
+            <Stack.Screen 
+              name="Formulas" 
+              component={EngineeringScreen} 
+              options={{ title: 'PilingWork (Bêta)' }}
+            />
+            <Stack.Screen 
+              name="HammerConfig" 
+              component={HammerConfigScreen} 
+              options={{ title: 'Config Marteaux' }}
             />
           </Stack.Group>
         ) : (

@@ -72,12 +72,11 @@ export default function AdminScreen({ navigation }) {
         }
     };
 
-    const toggleTool = async (userId, toolName, currentTools) => {
-        // Defaults to true if not defined
-        const tools = currentTools || { carnet: true, carte: true, inspection: true };
-        const newVal = tools[toolName] !== undefined ? !tools[toolName] : false; // Because default is true, toggling usually means false
+    const toggleTool = async (userId, toolName, currentTools, defaultVal = true) => {
+        const tools = currentTools || {};
+        const currentVal = tools[toolName] !== undefined ? tools[toolName] : defaultVal;
         try {
-            await setDoc(doc(db, 'users', userId), { tools: { ...tools, [toolName]: newVal } }, { merge: true });
+            await setDoc(doc(db, 'users', userId), { tools: { ...tools, [toolName]: !currentVal } }, { merge: true });
         } catch (e) {
             Alert.alert("Erreur", "Impossible de modifier l'outil.");
         }
@@ -159,28 +158,36 @@ export default function AdminScreen({ navigation }) {
                                     <Text style={styles.switchLabel}>Carnet</Text>
                                     <Switch 
                                         value={item.tools ? item.tools.carnet !== false : true} 
-                                        onValueChange={() => toggleTool(item.id, 'carnet', item.tools)}
+                                        onValueChange={() => toggleTool(item.id, 'carnet', item.tools, true)}
                                     />
                                 </View>
                                 <View style={styles.switchGroup}>
                                     <Text style={styles.switchLabel}>Carte</Text>
                                     <Switch 
                                         value={item.tools ? item.tools.carte !== false : true} 
-                                        onValueChange={() => toggleTool(item.id, 'carte', item.tools)}
+                                        onValueChange={() => toggleTool(item.id, 'carte', item.tools, true)}
                                     />
                                 </View>
                                 <View style={styles.switchGroup}>
                                     <Text style={styles.switchLabel}>Insp.</Text>
                                     <Switch 
                                         value={item.tools ? item.tools.inspection !== false : true} 
-                                        onValueChange={() => toggleTool(item.id, 'inspection', item.tools)}
+                                        onValueChange={() => toggleTool(item.id, 'inspection', item.tools, true)}
                                     />
                                 </View>
                                 <View style={styles.switchGroup}>
                                     <Text style={styles.switchLabel}>Punch</Text>
                                     <Switch 
                                         value={item.tools ? item.tools.punch !== false : true} 
-                                        onValueChange={() => toggleTool(item.id, 'punch', item.tools)}
+                                        onValueChange={() => toggleTool(item.id, 'punch', item.tools, true)}
+                                    />
+                                </View>
+                                <View style={styles.switchGroup}>
+                                    <Text style={[styles.switchLabel, { color: theme.colors.primary }]}>Formules</Text>
+                                    <Switch 
+                                        value={item.tools ? item.tools.formules === true : false} 
+                                        onValueChange={() => toggleTool(item.id, 'formules', item.tools, false)}
+                                        trackColor={{ true: theme.colors.primaryDark, false: theme.colors.border }}
                                     />
                                 </View>
                             </View>
