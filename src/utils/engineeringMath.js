@@ -58,6 +58,8 @@ export function calculatePilingData(data) {
     let pcrKn = Infinity;
     
     if (exposedLengthMm > 0) {
+        // K = 1.0 : On assume que la tête du pieu est guidée (rotule) par le casque/marteau, 
+        // et que l'encastrement partiel dans le sol agit comme une seconde rotule.
         const K = 1.0;
         const effectiveLength = K * exposedLengthMm; 
         const pcrN = (Math.pow(Math.PI, 2) * elasticModulusMPa * inertiaMm4) / Math.pow(effectiveLength, 2);

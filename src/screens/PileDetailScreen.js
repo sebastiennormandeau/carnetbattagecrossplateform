@@ -31,6 +31,7 @@ export default function PileDetailScreen({ route, navigation }) {
   const [depth, setDepth] = useState('');
   const [implanted, setImplanted] = useState(false);
   const [rebattage, setRebattage] = useState(false);
+  const [hasHotspot, setHasHotspot] = useState(false); // Default to false so it shows the red button on error or while loading
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -47,12 +48,30 @@ export default function PileDetailScreen({ route, navigation }) {
         if (pileSnap.exists()) {
           const data = pileSnap.data();
           setPile(data);
-          setPileNo(data.pileNo || '');
-          setShape(data.shape || 'Cercle');
-          setGauge(data.gaugeIn || '');
-          setDepth(data.depthFt !== undefined ? data.depthFt.toString() : '0');
-          setImplanted(data.implanted || false);
-          setRebattage(data.rebattage || false);
+          setPileNo(data.pileNo || data.pile_no || '');
+          
+          let shapeVal = data.shape || 'CIRCLE';
+          if (shapeVal === 'Cercle') shapeVal = 'CIRCLE';
+          if (shapeVal === 'Carre' || shapeVal === 'Carré') shapeVal = 'SQUARE';
+          if (shapeVal === 'Etoile') shapeVal = 'DIAMOND';
+          if (shapeVal === 'Triangle') shapeVal = 'TRIANGLE';
+          if (shapeVal === 'Hexagone') shapeVal = 'HEXAGON';
+          setShape(shapeVal);
+
+          setGauge(data.gaugeIn || data.gauge_in || '');
+
+          // Check if this pile has a hotspot
+          const hotspotsRef = collection(db, 'projects', projectId, 'hotspots');
+          const qNew = query(hotspotsRef, where('pileId', '==', pileId));
+          const qLegacy = query(hotspotsRef, where('pileRemoteId', '==', pileId));
+          const [snapNew, snapLegacy] = await Promise.all([getDocs(qNew), getDocs(qLegacy)]);
+          setHasHotspot(!snapNew.empty || !snapLegacy.empty);
+          
+          let d = data.depthFt !== undefined ? data.depthFt : (data.depth_ft !== undefined ? data.depth_ft : 0);
+          setDepth(d.toString());
+          
+          setImplanted(data.implanted || data.is_implanted || false);
+          setRebattage(data.rebattage || data.is_rebattage || false);
         } else {
           Alert.alert("Erreur", "Ce pieu n'existe plus.");
           navigation.goBack();
@@ -68,18 +87,25 @@ export default function PileDetailScreen({ route, navigation }) {
     fetchPile();
   }, [projectId, pileId]);
 
-  const handleSave = async () => {
-    setSaving(true);
+  const performSave = async () => {
     try {
       const pileRef = doc(db, 'projects', projectId, 'piles', pileId);
       
+      const parsedDepth = parseFloat(depth.replace(',', '.')) || 0;
+
       const updatedData = {
         pileNo: pileNo,
         shape: shape,
         gaugeIn: gauge,
-        depthFt: parseFloat(depth.replace(',', '.')) || 0,
+        depthFt: parsedDepth,
         implanted: implanted,
         rebattage: rebattage,
+        // Sauvegarde legacy pour compatibilité avec l'ancienne app Kotlin
+        pile_no: pileNo,
+        gauge_in: gauge,
+        depth_ft: parsedDepth,
+        is_implanted: implanted,
+        is_rebattage: rebattage,
         updatedAt: Date.now()
       };
 
@@ -94,6 +120,61 @@ export default function PileDetailScreen({ route, navigation }) {
       console.error("Error updating pile:", error);
       Alert.alert("Erreur", "Impossible d'enregistrer les modifications.");
     } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    
+    try {
+      // Check for duplicates
+      if (pileNo.trim() !== '') {
+          const pilesRef = collection(db, 'projects', projectId, 'piles');
+          const qNum = query(pilesRef, where('pileNo', '==', pileNo.trim()));
+          const qNumLegacy = query(pilesRef, where('pile_no', '==', pileNo.trim()));
+          
+          const [snapNew, snapLegacy] = await Promise.all([getDocs(qNum), getDocs(qNumLegacy)]);
+          
+          let isDuplicate = false;
+          const checkDoc = (d) => {
+              if (d.id !== pileId) {
+                  const data = d.data();
+                  let docShape = data.shape || 'CIRCLE';
+                  if (docShape === 'Cercle') docShape = 'CIRCLE';
+                  if (docShape === 'Carre' || docShape === 'Carré') docShape = 'SQUARE';
+                  if (docShape === 'Etoile') docShape = 'DIAMOND';
+                  if (docShape === 'Triangle') docShape = 'TRIANGLE';
+                  if (docShape === 'Hexagone') docShape = 'HEXAGON';
+                  
+                  if (docShape === shape) {
+                      isDuplicate = true;
+                  }
+              }
+          };
+          
+          snapNew.forEach(checkDoc);
+          snapLegacy.forEach(checkDoc);
+          
+          if (isDuplicate) {
+              Alert.alert(
+                  "Attention : Doublon détecté",
+                  `Le numéro "${pileNo}" avec la même forme est déjà utilisé par un autre pieu dans ce projet. Voulez-vous vraiment l'enregistrer ?`,
+                  [
+                      { text: "Annuler", style: "cancel", onPress: () => setSaving(false) },
+                      { text: "Enregistrer quand même", style: "destructive", onPress: performSave }
+                  ]
+              );
+              return; // Exit handleSave, performSave will be called if user confirms
+          }
+      }
+      
+      await performSave();
+      
+    } catch (error) {
+      console.error("Error checking duplicates:", error);
+      Alert.alert("Erreur", "Une erreur s'est produite lors de la vérification.");
       setSaving(false);
     }
   };
@@ -113,14 +194,20 @@ export default function PileDetailScreen({ route, navigation }) {
               // Supprimer le pieu
               await deleteDoc(doc(db, 'projects', projectId, 'piles', pileId));
               
-              // Rechercher et supprimer les hotspots rattachés
+              // Rechercher et supprimer les hotspots rattachés (nouveaux et legacy)
               const hotspotsRef = collection(db, 'projects', projectId, 'hotspots');
-              const q = query(hotspotsRef, where('pileId', '==', pileId));
-              const querySnapshot = await getDocs(q);
+              const qNew = query(hotspotsRef, where('pileId', '==', pileId));
+              const qLegacy = query(hotspotsRef, where('pileRemoteId', '==', pileId));
+              
+              const [snapNew, snapLegacy] = await Promise.all([getDocs(qNew), getDocs(qLegacy)]);
               
               const deletePromises = [];
-              querySnapshot.forEach((docSnap) => {
-                deletePromises.push(deleteDoc(docSnap.ref));
+              snapNew.forEach(d => deletePromises.push(deleteDoc(d.ref)));
+              snapLegacy.forEach(d => {
+                  // Eviter de supprimer deux fois si pour une raison quelconque il a les deux
+                  if (!deletePromises.find(p => p.id === d.id)) {
+                      deletePromises.push(deleteDoc(d.ref));
+                  }
               });
               await Promise.all(deletePromises);
               
@@ -152,7 +239,17 @@ export default function PileDetailScreen({ route, navigation }) {
   ];
   
   // Shapes
-  const shapes = ["Cercle", "Carre", "Triangle", "Hexagone", "Etoile"]; // Update these to match your old enum if needed
+  const shapes = [
+    { label: "Cercle", value: "CIRCLE" },
+    { label: "Carré", value: "SQUARE" },
+    { label: "Triangle", value: "TRIANGLE" },
+    { label: "Hexagone", value: "HEXAGON" },
+    { label: "Losange", value: "DIAMOND" },
+    { label: "Double Cercle", value: "CIRCLE_CIRCLE" },
+    { label: "Double Triangle", value: "TRIANGLE_TRIANGLE" },
+    { label: "Double Carré", value: "SQUARE_SQUARE" },
+    { label: "Carré/Hexagone", value: "SQUARE_HEX" }
+  ];
 
   return (
     <KeyboardAvoidingView 
@@ -179,7 +276,7 @@ export default function PileDetailScreen({ route, navigation }) {
             dropdownIconColor={theme.colors.text}
           >
             {shapes.map((s, index) => (
-              <Picker.Item key={index} label={s} value={s} />
+              <Picker.Item key={index} label={s.label} value={s.value} />
             ))}
           </Picker>
         </View>
@@ -230,6 +327,24 @@ export default function PileDetailScreen({ route, navigation }) {
         </View>
 
         <View style={styles.buttonContainer}>
+          {hasHotspot ? (
+            <View style={{ marginBottom: 15 }}>
+               <Button 
+                 title="Localiser sur le plan" 
+                 onPress={() => navigation.navigate('ProjectPlan', { projectId: projectId, projectName: 'Plan', highlightPiles: [pileId] })} 
+                 color="#333"
+               />
+            </View>
+          ) : (
+            <View style={{ marginBottom: 15 }}>
+               <Button 
+                 title="Placer sur le plan (Orphelin)" 
+                 onPress={() => navigation.navigate('ProjectPlan', { projectId: projectId, projectName: 'Plan', placePileId: pileId })} 
+                 color={theme.colors.error}
+               />
+               <Text style={{color: theme.colors.error, fontSize: 12, textAlign: 'center', marginTop: 5}}>Ce pieu n'a plus de point sur le plan.</Text>
+            </View>
+          )}
           <Button 
             title={saving ? "Enregistrement..." : "Enregistrer"} 
             onPress={handleSave} 

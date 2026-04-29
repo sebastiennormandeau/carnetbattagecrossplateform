@@ -15,10 +15,12 @@ export default function ProjectPlanScreen({ route, navigation }) {
   const [pdfUrl, setPdfUrl] = useState(null);
   const [piles, setPiles] = useState([]);
   const [hotspots, setHotspots] = useState([]);
-  const [mode, setMode] = useState('NAV'); // NAV, ADD, DEL, MOVE
+  const [mode, setMode] = useState(route.params?.placePileId ? 'PLACE' : 'NAV'); // NAV, ADD, DEL, MOVE, PLACE
   const [movingHotspotId, setMovingHotspotId] = useState(null);
+  const [highlightPiles, setHighlightPiles] = useState(route.params?.highlightPiles || []);
   const [currentPage, setCurrentPage] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [debugData, setDebugData] = useState({ pile: null, hotspot: null });
 
   // Constants
   const MIN_DIST_THRESHOLD = 0.05;
@@ -52,24 +54,93 @@ export default function ProjectPlanScreen({ route, navigation }) {
     }, () => setLoading(false));
 
     const unsubPiles = onSnapshot(collection(db, 'projects', projectId, 'piles'), (snap) => {
-      setPiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (snap.docs.length > 0) {
+          setDebugData(prev => ({ ...prev, pile: snap.docs[0].data() }));
+      }
+      setPiles(snap.docs.map(d => {
+         const data = d.data();
+         // Parse depth safely
+         let dFt = 0;
+         if (data.depthFt !== undefined) dFt = parseFloat(data.depthFt) || 0;
+         else if (data.depth_ft !== undefined) dFt = parseFloat(data.depth_ft) || 0;
+
+         // Parse booleans safely
+         const isImp = data.implanted === true || data.is_implanted === true || data.implanted === 'true' || data.is_implanted === 'true' || data.is_implanted === 1;
+         const isReb = data.rebattage === true || data.is_rebattage === true || data.rebattage === 'true' || data.is_rebattage === 'true' || data.is_rebattage === 1;
+
+         return { 
+             id: d.id, 
+             ...data,
+             pileNo: data.pileNo || data.pile_no || '',
+             gaugeIn: data.gaugeIn || data.gauge_in || '',
+             depthFt: dFt,
+             implanted: isImp,
+             rebattage: isReb
+         };
+      }));
     });
 
     const unsubHotspots = onSnapshot(collection(db, 'projects', projectId, 'hotspots'), (snap) => {
-      setHotspots(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      if (snap.docs.length > 0) {
+          setDebugData(prev => ({ ...prev, hotspot: snap.docs[0].data() }));
+      }
+      setHotspots(snap.docs.map(d => {
+         const data = d.data();
+         
+         // Extract pileId robustly
+         let pId = data.pileId || data.pile_id || data.pileRemoteId || data.pile || data.pieu_id || data.pieuId || data.pileRef || data.pile_ref || null;
+         if (pId && typeof pId === 'object' && pId.id) {
+             pId = pId.id;
+         } else if (pId && typeof pId === 'object' && pId.path) {
+             pId = pId.path.split('/').pop();
+         }
+
+         return { 
+            id: d.id, 
+            ...data,
+            pileId: pId ? String(pId) : undefined,
+            pageIndex: data.pageIndex !== undefined ? data.pageIndex : (data.page_index || 0),
+            xNorm: data.xNorm !== undefined ? data.xNorm : (data.x_norm !== undefined ? data.x_norm : data.xnorm),
+            yNorm: data.yNorm !== undefined ? data.yNorm : (data.y_norm !== undefined ? data.y_norm : data.ynorm)
+         };
+      }));
     });
 
     return () => { unsub(); unsubPiles(); unsubHotspots(); };
   }, [projectId]);
 
+  // Helper to resolve the true pileId for a hotspot, considering legacy Kotlin DB structures
+  const resolvePileId = (hotspot) => {
+      if (hotspot.pileId) return hotspot.pileId;
+      // Fallback 1: The pile has a reference to the hotspot (inversed relationship)
+      let linked = piles.find(p => p.hotspotId === hotspot.id || p.hotspot_id === hotspot.id || p.hotspotRef === hotspot.id || p.hotspot_ref === hotspot.id);
+      if (linked) return linked.id;
+      // Fallback 2: The hotspot and the pile share the exact same Document ID
+      linked = piles.find(p => p.id === hotspot.id);
+      if (linked) return linked.id;
+      return undefined;
+  };
+
   // When data changes, inject script to update the HTML markers
   useEffect(() => {
+    // Auto-navigate to highlighted pile's page if necessary
+    if (highlightPiles.length > 0 && hotspots.length > 0) {
+        const highlightId = highlightPiles[0];
+        const hotspot = hotspots.find(h => resolvePileId(h) === highlightId);
+        if (hotspot && hotspot.pageIndex !== undefined && hotspot.pageIndex !== currentPage) {
+            setCurrentPage(hotspot.pageIndex);
+        }
+    }
+    
     if (webViewRef.current && pdfUrl) {
-       const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage);
-       const script = `if (typeof updateMarkers === 'function') { updateMarkers(${JSON.stringify(pageHotspots)}, ${JSON.stringify(piles)}, '${mode}', '${movingHotspotId || ''}'); } true;`;
+       const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage).map(h => ({
+           ...h,
+           pileId: resolvePileId(h) // Inject resolved ID
+       }));
+       const script = `if (typeof updateMarkers === 'function') { updateMarkers(${JSON.stringify(pageHotspots)}, ${JSON.stringify(piles)}, '${mode}', '${movingHotspotId || ''}', ${JSON.stringify(highlightPiles)}); } true;`;
        webViewRef.current.injectJavaScript(script);
     }
-  }, [hotspots, piles, mode, currentPage, pdfUrl, movingHotspotId]);
+  }, [hotspots, piles, mode, currentPage, pdfUrl, movingHotspotId, highlightPiles]);
 
   const handleMessage = async (event) => {
     try {
@@ -94,6 +165,19 @@ export default function ProjectPlanScreen({ route, navigation }) {
               yNorm: yNorm,
               pileId: newPileRef.id
             });
+         } else if (mode === 'PLACE') {
+            const placePileId = route.params?.placePileId;
+            if (placePileId) {
+               await addDoc(collection(db, 'projects', projectId, 'hotspots'), {
+                  pageIndex: currentPage,
+                  xNorm: xNorm,
+                  yNorm: yNorm,
+                  pileId: placePileId
+               });
+               navigation.setParams({ placePileId: null });
+               setMode('NAV');
+               Alert.alert("Succès", "Le pieu a été replacé sur le plan !");
+            }
          } else {
             const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage);
             
@@ -136,14 +220,16 @@ export default function ProjectPlanScreen({ route, navigation }) {
                const hotspot = pageHotspots.find(h => h.id === bestId);
                
                if (mode === 'DEL') {
-                  if (hotspot && hotspot.pileId) {
-                     await deleteDoc(doc(db, 'projects', projectId, 'piles', hotspot.pileId));
+                  const targetPileId = resolvePileId(hotspot);
+                  if (hotspot && targetPileId) {
+                     await deleteDoc(doc(db, 'projects', projectId, 'piles', targetPileId));
                   }
                   await deleteDoc(doc(db, 'projects', projectId, 'hotspots', bestId));
                } else if (mode === 'NAV') {
                   if (hotspot) {
-                     if (hotspot.pileId) {
-                        navigation.navigate('PileDetail', { projectId, pileId: hotspot.pileId });
+                     const targetPileId = resolvePileId(hotspot);
+                     if (targetPileId) {
+                        navigation.navigate('PileDetail', { projectId, pileId: targetPileId });
                      } else {
                         // Create pile for legacy unlinked hotspot (matches Kotlin logic)
                         const newPileRef = await addDoc(collection(db, 'projects', projectId, 'piles'), {
@@ -178,6 +264,11 @@ export default function ProjectPlanScreen({ route, navigation }) {
         canvas { display: block; width: 100vw; height: auto; }
         #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .marker { position: absolute; width: 22px; height: 22px; border-radius: 11px; margin-left: -11px; margin-top: -11px; border: 2px solid white; box-sizing: border-box; box-shadow: 0 2px 4px rgba(0,0,0,0.4); transform-origin: center center; }
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 15px rgba(233, 30, 99, 0.7); }
+            50% { transform: scale(1.6); box-shadow: 0 0 30px rgba(233, 30, 99, 1); }
+            100% { transform: scale(1); box-shadow: 0 0 15px rgba(233, 30, 99, 0.7); }
+        }
       </style>
     </head>
     <body style="user-select: none; -webkit-user-select: none;">
@@ -276,7 +367,7 @@ export default function ProjectPlanScreen({ route, navigation }) {
           }));
         });
 
-        window.updateMarkers = function(hotspots, piles, mode, movingHotspotId) {
+        window.updateMarkers = function(hotspots, piles, mode, movingHotspotId, highlightPiles = []) {
           overlay.innerHTML = '';
           hotspots.forEach(h => {
              const pile = piles.find(p => p.id === h.pileId);
@@ -308,12 +399,23 @@ export default function ProjectPlanScreen({ route, navigation }) {
              div.style.borderColor = borderColor;
              div.style.borderWidth = borderColor === 'white' ? '2px' : '3px'; // Slightly thicker green border to make it pop
              
+             // Special highlight styling
+             const isHighlighted = pile && highlightPiles.includes(pile.id);
+             
              if (mode === 'MOVE' && h.id === movingHotspotId) {
                  div.style.borderColor = '#FFEB3B';
                  div.style.borderWidth = '4px';
                  div.style.boxShadow = '0 0 10px #FFEB3B';
                  div.style.zIndex = '1000';
                  div.style.transform = 'scale(' + (1.2 / currentVisualScale) + ')';
+             } else if (isHighlighted) {
+                 div.style.borderColor = '#E91E63'; // Magenta
+                 div.style.borderWidth = '5px';
+                 div.style.boxShadow = '0 0 25px #E91E63';
+                 div.style.zIndex = '999';
+                 div.style.transform = 'scale(' + (1.5 / currentVisualScale) + ')';
+                 // Appliquer une animation CSS clignotante via keyframes existante ou transition
+                 div.style.animation = 'pulse 1.5s infinite';
              } else {
                  div.style.transform = 'scale(' + (1 / currentVisualScale) + ')';
              }
@@ -334,18 +436,26 @@ export default function ProjectPlanScreen({ route, navigation }) {
     <View style={styles.container}>
       <View style={styles.modeBar}>
         <Text style={{ ...styles.pageText, flex: 1 }}>{hotspots.length} pts</Text>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'NAV' && styles.modeBtnActive]} onPress={() => {setMode('NAV'); setMovingHotspotId(null);}}>
-          <Text style={styles.modeBtnText}>NAV</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'ADD' && styles.modeBtnActive]} onPress={() => {setMode('ADD'); setMovingHotspotId(null);}}>
-          <Text style={styles.modeBtnText}>ADD</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'MOVE' && styles.modeBtnActive]} onPress={() => {setMode('MOVE'); setMovingHotspotId(null);}}>
-          <Text style={styles.modeBtnText}>MOVE</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.modeBtn, mode === 'DEL' && styles.modeBtnActive]} onPress={() => {setMode('DEL'); setMovingHotspotId(null);}}>
-          <Text style={styles.modeBtnText}>DEL</Text>
-        </TouchableOpacity>
+        {mode === 'PLACE' ? (
+           <View style={[styles.modeBtn, styles.modeBtnActive, {flex: 3, backgroundColor: theme.colors.error}]}>
+              <Text style={styles.modeBtnText}>TAPEZ SUR LE PLAN POUR PLACER LE PIEU ORPHELIN</Text>
+           </View>
+        ) : (
+           <>
+             <TouchableOpacity style={[styles.modeBtn, mode === 'NAV' && styles.modeBtnActive]} onPress={() => {setMode('NAV'); setMovingHotspotId(null);}}>
+               <Text style={styles.modeBtnText}>NAV</Text>
+             </TouchableOpacity>
+             <TouchableOpacity style={[styles.modeBtn, mode === 'ADD' && styles.modeBtnActive]} onPress={() => {setMode('ADD'); setMovingHotspotId(null);}}>
+               <Text style={styles.modeBtnText}>ADD</Text>
+             </TouchableOpacity>
+             <TouchableOpacity style={[styles.modeBtn, mode === 'MOVE' && styles.modeBtnActive]} onPress={() => {setMode('MOVE'); setMovingHotspotId(null);}}>
+               <Text style={styles.modeBtnText}>MOVE</Text>
+             </TouchableOpacity>
+             <TouchableOpacity style={[styles.modeBtn, mode === 'DEL' && styles.modeBtnActive]} onPress={() => {setMode('DEL'); setMovingHotspotId(null);}}>
+               <Text style={styles.modeBtnText}>DEL</Text>
+             </TouchableOpacity>
+           </>
+        )}
       </View>
 
       <View style={styles.pageControlsBar}>

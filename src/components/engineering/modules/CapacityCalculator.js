@@ -26,6 +26,8 @@ export default function CapacityCalculator() {
 
     const hammers = store.availableHammers;
 
+    const safeParse = (val) => parseFloat(String(val).replace(',', '.')) || 0;
+
     const resultData = useMemo(() => {
         const gauge = gauges[store.selectedGaugeIdx] || gauges[0];
         const ID = gauge.od - (2 * gauge.t);
@@ -33,16 +35,16 @@ export default function CapacityCalculator() {
         const areaMm2 = areaIn2 * 645.16;
 
         const refusalPerBlow = store.blowsPerBatch > 0 
-            ? (parseFloat(store.measuredRefusal) || 0) / store.blowsPerBatch 
+            ? safeParse(store.measuredRefusal) / store.blowsPerBatch 
             : 0;
 
         const dataPayload = {
             measuredRefusal: refusalPerBlow,
-            efficiency: parseFloat(store.efficiency) || 55,
+            efficiency: safeParse(store.efficiency) || 55,
             hammerWeightKg: hammers[store.selectedHammerIdx]?.weightKg || 1500,
-            dropHeight: parseFloat(store.dropHeight) || 0,
-            lengthUnderHammer: parseFloat(store.lengthUnderHammer) || 0,
-            soilReboundC3: parseFloat(store.soilReboundC3) || 2.5,
+            dropHeight: safeParse(store.dropHeight),
+            lengthUnderHammer: safeParse(store.lengthUnderHammer),
+            soilReboundC3: safeParse(store.soilReboundC3) || 2.5,
             areaMm2,
             elasticModulusMPa: 200000, 
             linearWeightKgPerMeter: gauge.weight
@@ -181,12 +183,12 @@ export default function CapacityCalculator() {
             {/* ZONE C: RÉSULTATS */}
             <View style={styles.resultCard}>
                 <Text style={styles.resultSubLabel}>Capacité Ultime Estimée (Ru)</Text>
-                <Text style={styles.resultSmallValue}>{resultData.targetRu > 0 ? resultData.targetRu.toFixed(0) : 0} kN</Text>
+                <Text style={styles.resultSmallValue}>{resultData.targetRu > 0 ? Math.max(0, resultData.targetRu).toFixed(0) : 0} kN</Text>
                 
                 <View style={styles.divider} />
                 
                 <Text style={styles.resultLabel}>CAPACITÉ ADMISSIBLE</Text>
-                <Text style={styles.resultGiantValue}>{resultData.admissibleCapacityKn > 0 ? resultData.admissibleCapacityKn.toFixed(0) : 0} <Text style={styles.resultGiantSuffix}>kN</Text></Text>
+                <Text style={styles.resultGiantValue}>{resultData.admissibleCapacityKn > 0 ? Math.max(0, resultData.admissibleCapacityKn).toFixed(0) : 0} <Text style={styles.resultGiantSuffix}>kN</Text></Text>
                 <Text style={styles.resultFsText}>(Facteur de Sécurité: 2.0)</Text>
             </View>
 

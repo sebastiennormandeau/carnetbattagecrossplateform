@@ -2,8 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Switch, ScrollView, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { db, auth } from '../config/firebase';
 import { theme } from '../theme/Theme';
+import { FONDABEC_LOGO_BASE64 } from '../config/fondabecLogoBase64';
 
 export default function AdminScreen({ navigation }) {
     const [users, setUsers] = useState([]);
@@ -14,6 +19,21 @@ export default function AdminScreen({ navigation }) {
     const [shifts, setShifts] = useState([]);
     const [deductLunch, setDeductLunch] = useState(false);
     const [lunchMinutes, setLunchMinutes] = useState('30');
+    
+    // Date Picker state
+    const [startDate, setStartDate] = useState(() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 14); // Par défaut: 2 dernières semaines
+        d.setHours(0,0,0,0);
+        return d;
+    });
+    const [endDate, setEndDate] = useState(() => {
+        const d = new Date();
+        d.setHours(23,59,59,999);
+        return d;
+    });
+    const [showStartPicker, setShowStartPicker] = useState(false);
+    const [showEndPicker, setShowEndPicker] = useState(false);
 
     useEffect(() => {
         // Fetch all users
@@ -46,7 +66,16 @@ export default function AdminScreen({ navigation }) {
             setShifts(data);
         });
 
-        return () => { unsubUsers(); unsubAdmins(); unsubProjects(); unsubShifts(); };
+        // Fetch Punch settings
+        const unsubPunchSettings = onSnapshot(doc(db, 'settings', 'punch'), docSnap => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setDeductLunch(!!data.deductLunch);
+                setLunchMinutes(data.lunchMinutes ? String(data.lunchMinutes) : '30');
+            }
+        });
+
+        return () => { unsubUsers(); unsubAdmins(); unsubProjects(); unsubShifts(); unsubPunchSettings(); };
     }, []);
 
     const toggleAdmin = async (userId, currentStatus) => {
@@ -93,6 +122,133 @@ export default function AdminScreen({ navigation }) {
             await updateDoc(doc(db, 'projects', projectId), { readUsers: r, writeUsers: w });
         } catch (e) {
             Alert.alert("Erreur", "Impossible de modifier l'accès au projet.");
+        }
+    };
+
+    const handleToggleDeductLunch = async (val) => {
+        try {
+            await setDoc(doc(db, 'settings', 'punch'), { deductLunch: val }, { merge: true });
+        } catch (e) {
+            Alert.alert("Erreur", "Impossible de sauvegarder ce paramètre.");
+        }
+    };
+
+    const handleSaveLunchMinutes = async (val) => {
+        // Only update local state here to allow typing, save on blur
+        setLunchMinutes(val);
+    };
+
+    const handleBlurLunchMinutes = async () => {
+        try {
+            await setDoc(doc(db, 'settings', 'punch'), { lunchMinutes: lunchMinutes }, { merge: true });
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleExportPayrollPDF = async () => {
+        try {
+            Alert.alert("Génération", "Préparation du rapport de paie...");
+
+            const dateStr = new Date().toLocaleDateString('fr-CA', { day: 'numeric', month: 'long', year: 'numeric' });
+            const sDateStr = startDate.toLocaleDateString('fr-CA');
+            const eDateStr = endDate.toLocaleDateString('fr-CA');
+
+            // Filtrer les quarts dans la période ET qui sont terminés
+            const validShifts = shifts.filter(s => {
+                if (!s.punchOutTime || !s.punchInTime) return false;
+                const inMs = s.punchInTime.toMillis();
+                return inMs >= startDate.getTime() && inMs <= endDate.getTime();
+            });
+
+            // Regrouper par employé
+            const empData = {};
+            validShifts.forEach(s => {
+                const emp = s.userEmail || s.userId;
+                if (!empData[emp]) empData[emp] = { totalMs: 0, shiftsCount: 0, projects: new Set() };
+                
+                const inMs = s.punchInTime.toMillis();
+                const outMs = s.punchOutTime.toMillis();
+                let diffMs = outMs - inMs;
+                
+                if (deductLunch) {
+                    const inDateObj = new Date(inMs);
+                    const outDateObj = new Date(outMs);
+                    if (inDateObj.getHours() < 12 && outDateObj.getHours() >= 12) {
+                        const lunchMs = (parseInt(lunchMinutes) || 0) * 60 * 1000;
+                        diffMs -= lunchMs;
+                        if (diffMs < 0) diffMs = 0;
+                    }
+                }
+                
+                empData[emp].totalMs += diffMs;
+                empData[emp].shiftsCount += 1;
+                empData[emp].projects.add(s.projectName || 'Inconnu');
+            });
+
+            const rowsHtml = Object.keys(empData).map(emp => {
+                const hours = (empData[emp].totalMs / 3600000).toFixed(2);
+                const projs = Array.from(empData[emp].projects).join(', ');
+                return `
+                <tr>
+                    <td>${emp}</td>
+                    <td>${empData[emp].shiftsCount}</td>
+                    <td>${projs}</td>
+                    <td style="text-align: right; font-weight: bold; font-size: 14px;">${hours} h</td>
+                </tr>
+                `;
+            }).join('');
+
+            const html = `
+            <html>
+                <head>
+                <style>
+                    body { font-family: Helvetica, Arial, sans-serif; padding: 10px 30px; color: #333; margin: 0; }
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px; }
+                    .logo { width: 180px; }
+                    .title-box { display: flex; flex-direction: column; flex: 1; margin-left: 20px; margin-top: 5px; }
+                    .title { color: #003366; font-size: 24px; font-weight: bold; margin: 0; }
+                    .subtitle { font-size: 14px; color: #333; margin-top: 8px; }
+                    .date { font-size: 12px; color: #333; margin-top: 8px; text-align: right; }
+                    hr { border: 0; border-top: 1px solid #999; margin-top: 30px; margin-bottom: 30px; }
+                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                    th, td { border-bottom: 1px solid #ccc; padding: 12px 8px; text-align: left; }
+                    th { background-color: #003366; color: white; font-weight: bold; }
+                    td { color: black; }
+                </style>
+                </head>
+                <body>
+                <div class="header">
+                    <img src="${FONDABEC_LOGO_BASE64}" class="logo" />
+                    <div class="title-box">
+                    <p class="title">Sommaire de Paie (Horodateur)</p>
+                    <p class="subtitle">Période: ${sDateStr} au ${eDateStr}</p>
+                    <p class="subtitle" style="font-size:12px; color:#666;">Dîner déduit automatiquement: ${deductLunch ? lunchMinutes + ' min' : 'Non'}</p>
+                    </div>
+                    <div class="date">Généré le:<br/>${dateStr}</div>
+                </div>
+                <hr />
+                <table>
+                    <tr>
+                    <th>Employé</th>
+                    <th>Quarts</th>
+                    <th>Chantiers visités</th>
+                    <th style="text-align: right;">Heures Totales</th>
+                    </tr>
+                    ${rowsHtml || '<tr><td colspan="4" style="text-align:center;">Aucune donnée dans cette période</td></tr>'}
+                </table>
+                </body>
+            </html>
+            `;
+
+            const { uri } = await Print.printToFileAsync({ html });
+            const stamp = new Date().toISOString().replace(/[:.]/g, '').substring(0, 15);
+            const newPath = FileSystem.cacheDirectory + `SommairePaie_${stamp}.pdf`;
+            await FileSystem.moveAsync({ from: uri, to: newPath });
+            await Sharing.shareAsync(newPath, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'Partager le rapport' });
+        } catch (e) {
+            console.error("PDF Export Crash:", e);
+            Alert.alert("Erreur Système", "L'opération a échoué.\nDétails: " + e.message);
         }
     };
 
@@ -288,24 +444,67 @@ export default function AdminScreen({ navigation }) {
                         <Text style={{ color: theme.colors.textMuted }}>Déduire automatiquement le dîner</Text>
                         <Switch 
                             value={deductLunch} 
-                            onValueChange={setDeductLunch}
+                            onValueChange={handleToggleDeductLunch}
                             trackColor={{ true: theme.colors.primaryDark, false: theme.colors.border }}
                             thumbColor={theme.colors.primary}
                         />
                     </View>
                     
                     {deductLunch && (
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
                             <Text style={{ color: theme.colors.textMuted }}>Durée du dîner (minutes)</Text>
                             <TextInput 
                                 style={{ backgroundColor: theme.colors.background, color: 'white', padding: 8, borderRadius: 5, width: 80, textAlign: 'center', borderWidth: 1, borderColor: theme.colors.border }}
                                 value={lunchMinutes}
-                                onChangeText={setLunchMinutes}
+                                onChangeText={handleSaveLunchMinutes}
+                                onBlur={handleBlurLunchMinutes}
                                 keyboardType="numeric"
                             />
                         </View>
                     )}
-                    <Text style={{ color: theme.colors.primary, fontSize: 12, marginTop: 15 }}>* Le système soustraira ce temps uniquement pour les quarts de travail qui ont débuté avant 12h00 ET se sont terminés après 12h00.</Text>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 15, borderTopWidth: 1, borderColor: '#333', paddingTop: 15 }}>
+                        <View style={{flex: 1}}>
+                            <Text style={{ color: theme.colors.textMuted, fontSize: 12 }}>Du :</Text>
+                            <TouchableOpacity onPress={() => setShowStartPicker(true)} style={styles.dateBtn}>
+                                <Text style={styles.dateBtnText}>{startDate.toLocaleDateString()}</Text>
+                            </TouchableOpacity>
+                        </View>
+                        <View style={{flex: 1, marginLeft: 10}}>
+                            <Text style={{ color: theme.colors.textMuted, fontSize: 12 }}>Au :</Text>
+                            <TouchableOpacity onPress={() => setShowEndPicker(true)} style={styles.dateBtn}>
+                                <Text style={styles.dateBtnText}>{endDate.toLocaleDateString()}</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+
+                    {showStartPicker && (
+                        <DateTimePicker
+                            value={startDate}
+                            mode="date"
+                            display="default"
+                            onChange={(event, date) => {
+                                setShowStartPicker(false);
+                                if (date) { date.setHours(0,0,0,0); setStartDate(date); }
+                            }}
+                        />
+                    )}
+                    {showEndPicker && (
+                        <DateTimePicker
+                            value={endDate}
+                            mode="date"
+                            display="default"
+                            onChange={(event, date) => {
+                                setShowEndPicker(false);
+                                if (date) { date.setHours(23,59,59,999); setEndDate(date); }
+                            }}
+                        />
+                    )}
+
+                    <TouchableOpacity style={styles.exportBtn} onPress={handleExportPayrollPDF}>
+                        <Text style={styles.exportBtnText}>📄 Exporter le Sommaire (PDF)</Text>
+                    </TouchableOpacity>
+
                 </View>
 
                 <FlatList
@@ -396,5 +595,9 @@ const styles = StyleSheet.create({
     radioBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
     radioBtnActive: { backgroundColor: '#333' },
     radioText: { color: theme.colors.textMuted, fontSize: 12 },
-    radioTextActive: { color: 'white', fontWeight: 'bold' }
+    radioTextActive: { color: 'white', fontWeight: 'bold' },
+    dateBtn: { backgroundColor: '#333', padding: 10, borderRadius: 6, marginTop: 4, alignItems: 'center' },
+    dateBtnText: { color: 'white', fontWeight: 'bold' },
+    exportBtn: { backgroundColor: theme.colors.primary, padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 20 },
+    exportBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16 }
 });

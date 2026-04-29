@@ -17,6 +17,9 @@ export default function PunchScreen({ navigation }) {
     const [historyModalVisible, setHistoryModalVisible] = useState(false);
     const [historyShifts, setHistoryShifts] = useState([]);
 
+    const [deductLunch, setDeductLunch] = useState(false);
+    const [lunchMinutes, setLunchMinutes] = useState('30');
+
     // Get current user and privileges
     useEffect(() => {
         const user = auth.currentUser;
@@ -87,9 +90,19 @@ export default function PunchScreen({ navigation }) {
             setLoading(false);
         });
 
+        // Fetch Punch settings
+        const unsubPunchSettings = onSnapshot(doc(db, 'settings', 'punch'), docSnap => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setDeductLunch(!!data.deductLunch);
+                setLunchMinutes(data.lunchMinutes ? String(data.lunchMinutes) : '30');
+            }
+        });
+
         return () => {
             unsubscribeProjects();
             unsubShift();
+            unsubPunchSettings();
         };
     }, []);
 
@@ -167,12 +180,24 @@ export default function PunchScreen({ navigation }) {
         const inMs = s.punchInTime ? s.punchInTime.seconds * 1000 : 0;
         const outMs = s.punchOutTime ? s.punchOutTime.seconds * 1000 : 0;
         if (inMs && outMs) {
-            const diffH = (outMs - inMs) / 3600000;
-            const inDate = new Date(inMs);
-            if (inDate.toDateString() === todayStr) {
+            let diffMs = outMs - inMs;
+            
+            if (deductLunch) {
+                const inDate = new Date(inMs);
+                const outDate = new Date(outMs);
+                if (inDate.getHours() < 12 && outDate.getHours() >= 12) {
+                    const lunchMs = (parseInt(lunchMinutes) || 0) * 60 * 1000;
+                    diffMs -= lunchMs;
+                    if (diffMs < 0) diffMs = 0;
+                }
+            }
+
+            const diffH = diffMs / 3600000;
+            const inDateObj = new Date(inMs);
+            if (inDateObj.toDateString() === todayStr) {
                 totalToday += diffH;
             }
-            if (inDate >= startOfWeek) {
+            if (inDateObj >= startOfWeek) {
                 totalWeek += diffH;
             }
         }
@@ -305,7 +330,20 @@ export default function PunchScreen({ navigation }) {
                             
                             let durTxt = '';
                             if (inMs && outMs) {
-                                durTxt = ((outMs - inMs) / 3600000).toFixed(2) + ' h';
+                                let diffMs = outMs - inMs;
+                                let hadLunch = false;
+                                
+                                if (deductLunch) {
+                                    const outDate = new Date(outMs);
+                                    if (inDate.getHours() < 12 && outDate.getHours() >= 12) {
+                                        const lunchMs = (parseInt(lunchMinutes) || 0) * 60 * 1000;
+                                        diffMs -= lunchMs;
+                                        if (diffMs < 0) diffMs = 0;
+                                        hadLunch = true;
+                                    }
+                                }
+                                
+                                durTxt = (diffMs / 3600000).toFixed(2) + ' h' + (hadLunch ? ' (-dîner)' : '');
                             }
 
                             return (

@@ -20,11 +20,13 @@ export default function ProjectDetailScreen({ route, navigation }) {
   const [project, setProject] = useState(null);
   const [piles, setPiles] = useState([]);
   const [photos, setPhotos] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const [projectNameInput, setProjectNameInput] = useState('');
   const [locationInput, setLocationInput] = useState('');
-  const [expectedDepthInput, setExpectedDepthInput] = useState('0.0');
+  const [expectedDepthInput, setExpectedDepthInput] = useState('');
+  const [newNoteText, setNewNoteText] = useState('');
   const [collapsedShapes, setCollapsedShapes] = useState({});
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingDepth, setIsEditingDepth] = useState(false);
@@ -45,7 +47,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
         setProject({ id: docSnap.id, ...data });
         setProjectNameInput(data.name || '');
         setLocationInput(data.location || '');
-        setExpectedDepthInput(data.expectedDepth ? data.expectedDepth.toString() : '0.0');
+        setExpectedDepthInput(data.expectedDepth ? data.expectedDepth.toString() : '');
       }
     });
 
@@ -55,7 +57,32 @@ export default function ProjectDetailScreen({ route, navigation }) {
     const unsubPiles = onSnapshot(q, (snapshot) => {
       const pilesData = [];
       snapshot.forEach(doc => {
-        pilesData.push({ id: doc.id, ...doc.data() });
+        const data = doc.data();
+        
+        let dFt = 0;
+        if (data.depthFt !== undefined) dFt = parseFloat(data.depthFt) || 0;
+        else if (data.depth_ft !== undefined) dFt = parseFloat(data.depth_ft) || 0;
+
+        const isImp = data.implanted === true || data.is_implanted === true || data.implanted === 'true' || data.is_implanted === 'true' || data.is_implanted === 1;
+        const isReb = data.rebattage === true || data.is_rebattage === true || data.rebattage === 'true' || data.is_rebattage === 'true' || data.is_rebattage === 1;
+
+        let shapeVal = data.shape || 'CIRCLE';
+        if (shapeVal === 'Cercle') shapeVal = 'CIRCLE';
+        if (shapeVal === 'Carre' || shapeVal === 'Carré') shapeVal = 'SQUARE';
+        if (shapeVal === 'Etoile') shapeVal = 'DIAMOND';
+        if (shapeVal === 'Triangle') shapeVal = 'TRIANGLE';
+        if (shapeVal === 'Hexagone') shapeVal = 'HEXAGON';
+
+        pilesData.push({ 
+            id: doc.id, 
+            ...data,
+            shape: shapeVal,
+            pileNo: data.pileNo || data.pile_no || '',
+            gaugeIn: data.gaugeIn || data.gauge_in || '',
+            depthFt: dFt,
+            implanted: isImp,
+            rebattage: isReb
+        });
       });
       setPiles(pilesData);
       setLoading(false);
@@ -67,19 +94,34 @@ export default function ProjectDetailScreen({ route, navigation }) {
       const photosData = [];
       for (const d of snapshot.docs) {
          const pData = d.data();
-         let url = null;
-         try {
-            url = await getDownloadURL(ref(storage, pData.storagePath));
-         } catch(e){}
+         let url = pData.url || pData.downloadUrl || null;
+         if (!url && pData.storagePath) {
+             try {
+                url = await getDownloadURL(ref(storage, pData.storagePath));
+             } catch(e){}
+         }
          photosData.push({ id: d.id, ...pData, url });
       }
       setPhotos(photosData);
-    });
+    }, (err) => console.log('Photos listener error:', err));
+
+    // 4. Listen to Notes
+    const notesRef = collection(db, 'projects', projectId, 'notes');
+    const unsubNotes = onSnapshot(notesRef, (snapshot) => {
+      const notesData = [];
+      snapshot.forEach(doc => {
+         notesData.push({ id: doc.id, ...doc.data() });
+      });
+      // Sort by creation time
+      notesData.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      setNotes(notesData);
+    }, (err) => console.log('Notes listener error:', err));
 
     return () => {
       unsubProject();
       unsubPiles();
       unsubPhotos();
+      unsubNotes();
     };
   }, [projectId]);
 
@@ -100,9 +142,47 @@ export default function ProjectDetailScreen({ route, navigation }) {
     : 0;
   const avgDepthRounded = Math.round(avgDepth * 10) / 10;
 
+  const expectedD = parseFloat(String(expectedDepthInput).replace(',', '.')) || 0.0;
+  const totalDiff = validDepthPiles.reduce((acc, p) => acc + (p.depthFt - expectedD), 0);
+  const totalDiffStr = totalDiff === 0 ? '—' : (totalDiff > 0 ? '+' : '') + totalDiff.toFixed(1);
+
+  // Calcul différentiel par calibre
+  const diffByGauge = {};
+  const unknownPileIds = []; // ID des pieux non identifiés
+
+  validDepthPiles.forEach(p => {
+      const gauge = p.gaugeIn;
+      const isUnknown = (!gauge || gauge.toString().trim() === '');
+      const gaugeKey = isUnknown ? 'Inconnu' : gauge;
+      
+      if (isUnknown) {
+          unknownPileIds.push(p.id);
+      }
+      
+      if (!diffByGauge[gaugeKey]) diffByGauge[gaugeKey] = { diff: 0, count: 0 };
+      diffByGauge[gaugeKey].diff += (p.depthFt - expectedD);
+      diffByGauge[gaugeKey].count += 1;
+  });
+
+  const getShapeLabel = (shapeVal) => {
+    switch (shapeVal) {
+      case 'CIRCLE': return 'Cercle';
+      case 'SQUARE': return 'Carré';
+      case 'TRIANGLE': return 'Triangle';
+      case 'HEXAGON': return 'Hexagone';
+      case 'DIAMOND': return 'Losange';
+      case 'CIRCLE_CIRCLE': return 'Double Cercle';
+      case 'TRIANGLE_TRIANGLE': return 'Double Triangle';
+      case 'SQUARE_SQUARE': return 'Double Carré';
+      case 'SQUARE_HEX': return 'Carré/Hexagone';
+      case 'CIRCLE_HEX': return 'Cercle/Hexagone';
+      default: return shapeVal || 'Non définie';
+    }
+  };
+
   // Group piles by shape
   const groupedPiles = piles.reduce((acc, pile) => {
-    const shape = pile.shape || "Non définie";
+    const shape = getShapeLabel(pile.shape);
     if (!acc[shape]) acc[shape] = [];
     acc[shape].push(pile);
     return acc;
@@ -147,12 +227,53 @@ export default function ProjectDetailScreen({ route, navigation }) {
     }
   };
 
-  const togglePhotoInclude = async (photoId, currentStatus) => {
+   const togglePhotoInclude = async (photoId, currentStatus) => {
      try {
         await updateDoc(doc(db, 'projects', projectId, 'photos', photoId), {
            includeInReport: currentStatus === false ? true : false
         });
      } catch(e) {}
+  };
+
+  const handleAddNote = async () => {
+     if (!newNoteText.trim()) return;
+     try {
+        await addDoc(collection(db, 'projects', projectId, 'notes'), {
+           text: newNoteText.trim(),
+           includeInReport: true,
+           createdAt: Date.now()
+        });
+        setNewNoteText('');
+     } catch(e) {
+        Alert.alert("Erreur", "Impossible d'ajouter la note.");
+     }
+  };
+
+  const toggleNoteInclude = async (noteId, currentStatus) => {
+     try {
+        await updateDoc(doc(db, 'projects', projectId, 'notes', noteId), {
+           includeInReport: currentStatus === false ? true : false
+        });
+     } catch(e) {}
+  };
+
+  const deleteNote = (noteId) => {
+     Alert.alert(
+        "Supprimer la note",
+        "Voulez-vous vraiment supprimer cette note ?",
+        [
+           { text: "Annuler", style: "cancel" },
+           { 
+              text: "Supprimer", 
+              style: "destructive",
+              onPress: async () => {
+                 try {
+                    await deleteDoc(doc(db, 'projects', projectId, 'notes', noteId));
+                 } catch(e) {}
+              }
+           }
+        ]
+     );
   };
 
   const getShapeSvg = (shape, pileNo) => {
@@ -184,12 +305,28 @@ export default function ProjectDetailScreen({ route, navigation }) {
       Alert.alert("Génération", "Préparation du PDF...");
 
       const dateStr = new Date().toLocaleDateString('fr-CA', { day: 'numeric', month: 'long', year: 'numeric' });
-      
-      const expectedD = parseFloat(expectedDepthInput) || 0.0;
-      const totalDiff = validDepthPiles.reduce((acc, p) => acc + (p.depthFt - expectedD), 0);
-      const totalDiffStr = totalDiff === 0 ? '—' : (totalDiff > 0 ? '+' : '') + totalDiff.toFixed(1);
 
-      const pilesHtml = piles.map(p => {
+      const sortedPilesForReport = [...piles].sort((a, b) => {
+         if (a.shape !== b.shape) {
+             return (a.shape || '').localeCompare(b.shape || '');
+         }
+         const numA = String(a.pileNo || '');
+         const numB = String(b.pileNo || '');
+         const chunkify = (t) => t.match(/[^\d]+|\d+/g) || [];
+         const aa = chunkify(numA);
+         const bb = chunkify(numB);
+         for (let x = 0; aa[x] && bb[x]; x++) {
+             if (aa[x] !== bb[x]) {
+                 const c = Number(aa[x]);
+                 const d = Number(bb[x]);
+                 if (!isNaN(c) && !isNaN(d)) return c - d;
+                 else return (aa[x] > bb[x]) ? 1 : -1;
+             }
+         }
+         return aa.length - bb.length;
+      });
+
+      const pilesHtml = sortedPilesForReport.map(p => {
          const diff = p.depthFt > 0 ? (p.depthFt - expectedD) : 0;
          const diffStr = diff === 0 ? '—' : (diff > 0 ? '+' : '') + diff.toFixed(2);
          return `
@@ -203,6 +340,12 @@ export default function ProjectDetailScreen({ route, navigation }) {
             <td>${p.rebattage ? 'Oui' : 'Non'}</td>
           </tr>
          `;
+      }).join('');
+
+      const gaugeHtml = Object.keys(diffByGauge).map(gauge => {
+          const item = diffByGauge[gauge];
+          const dStr = item.diff === 0 ? '—' : (item.diff > 0 ? '+' : '') + item.diff.toFixed(1);
+          return `${gauge === 'Inconnu' ? gauge : gauge + '"'} : ${dStr} ft (sur ${item.count} pieux)<br/>`;
       }).join('');
 
       const selectedPhotos = photos.filter(p => p.includeInReport !== false);
@@ -234,6 +377,15 @@ export default function ProjectDetailScreen({ route, navigation }) {
       const photosSection = photosHtml ? `
          <h2 class="photos-title">Photos du Chantier</h2>
          ${photosHtml}
+      ` : '';
+
+      const selectedNotes = notes.filter(n => n.includeInReport !== false);
+      const notesHtml = selectedNotes.map(n => `<li>${n.text}</li>`).join('');
+      const notesSection = notesHtml ? `
+         <h2>Notes de Projet</h2>
+         <ul class="notes-list">
+            ${notesHtml}
+         </ul>
       ` : '';
 
       const html = `
@@ -281,6 +433,9 @@ export default function ProjectDetailScreen({ route, navigation }) {
               Profondeur moyenne: ${avgDepthRounded} ft (sur ${validDepthPiles.length} pieux)<br/>
               Profondeur prévue: ${expectedD.toFixed(1)} ft<br/>
               Différentiel total: ${totalDiffStr} ft<br/>
+              <br/>
+              <strong>Différentiel par calibre:</strong><br/>
+              ${gaugeHtml || 'Aucun pieu valide'}
             </div>
             
             <h2>Liste des Pieux</h2>
@@ -296,6 +451,8 @@ export default function ProjectDetailScreen({ route, navigation }) {
               </tr>
               ${pilesHtml}
             </table>
+            
+            ${notesSection}
             
             ${photosSection}
           </body>
@@ -327,10 +484,13 @@ export default function ProjectDetailScreen({ route, navigation }) {
 
   const handleSaveProject = async () => {
     try {
+      // Safe parsing to handle French comma decimals
+      const parsedDepth = parseFloat(String(expectedDepthInput).replace(',', '.')) || 0.0;
+
       await updateDoc(doc(db, 'projects', projectId), {
         name: projectNameInput.trim(),
         location: locationInput.trim(),
-        expectedDepth: parseFloat(expectedDepthInput) || 0.0
+        expectedDepth: parsedDepth
       });
       Alert.alert("Enregistré", "Le projet a été mis à jour.");
     } catch (e) {
@@ -384,27 +544,62 @@ export default function ProjectDetailScreen({ route, navigation }) {
       return (
       <View key={shape} style={styles.shapeSection}>
         <TouchableOpacity style={styles.shapeHeader} onPress={() => toggleShape(shape)}>
-            <Text style={styles.shapeTitle}>Forme: {shape}</Text>
+            <Text style={styles.shapeTitle}>Forme: {shape} ({shapePiles.length})</Text>
             <Text style={{color: theme.colors.primary, fontWeight: 'bold'}}>{isCollapsed ? '▼' : '▲'}</Text>
         </TouchableOpacity>
         
-        {!isCollapsed && shapePiles.map(pile => (
+        {!isCollapsed && [...shapePiles].sort((a, b) => {
+            const strA = String(a.pileNo || '');
+            const strB = String(b.pileNo || '');
+            
+            // Fonction de séparation en blocs de nombres et de textes
+            const chunkify = (t) => {
+                let tz = [], x = 0, y = -1, n = 0, i, j;
+                while (i = (j = t.charAt(x++)).charCodeAt(0)) {
+                    let m = (i >= 48 && i <= 57); // On sépare strictement par les chiffres
+                    if (m !== n) { tz[++y] = ""; n = m; }
+                    tz[y] += j;
+                }
+                return tz;
+            };
+
+            const aa = chunkify(strA);
+            const bb = chunkify(strB);
+
+            for (let x = 0; aa[x] && bb[x]; x++) {
+                if (aa[x] !== bb[x]) {
+                    const c = Number(aa[x]);
+                    const d = Number(bb[x]);
+                    if (!isNaN(c) && !isNaN(d)) {
+                        return c - d;
+                    } else {
+                        return (aa[x] > bb[x]) ? 1 : -1;
+                    }
+                }
+            }
+            return aa.length - bb.length;
+        }).map(pile => {
+          const isError = pile.implanted && !(pile.depthFt > 0);
+          return (
           <TouchableOpacity 
             key={pile.id} 
-            style={styles.pileCard}
+            style={[styles.pileCard, isError ? { borderColor: theme.colors.error, borderWidth: 2, backgroundColor: '#ffebee' } : {}]}
             onPress={() => navigation.navigate('PileDetail', { 
               projectId: projectId, 
               pileId: pile.id 
             })}
           >
             <View>
-              <Text style={styles.pileName}>{pile.pileNo || "Pieu"}</Text>
+              <Text style={styles.pileName}>
+                 {pile.pileNo || "Pieu"} 
+                 {isError && <Text style={{color: theme.colors.error, fontSize: 12}}> (Erreur: Sans Profondeur)</Text>}
+              </Text>
               <Text style={styles.pileSub}>
                 Calibre: {pile.gaugeIn || "-"} in | Prof.: {pile.depthFt} ft | {pile.implanted ? "Implanté" : "Non implanté"}
               </Text>
             </View>
           </TouchableOpacity>
-        ))}
+        )})}
       </View>
     )});
   };
@@ -466,6 +661,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
                     keyboardType="numeric"
                     value={expectedDepthInput}
                     onChangeText={setExpectedDepthInput}
+                    onBlur={() => { setIsEditingDepth(false); handleSaveProject(); }}
                     autoFocus
                  />
                  <Text style={styles.sectionText}> ft</Text>
@@ -475,7 +671,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
               </View>
            ) : (
               <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                 <Text style={{...styles.sectionText, fontWeight: 'bold'}}>{parseFloat(expectedDepthInput) || 0} ft</Text>
+                 <Text style={{...styles.sectionText, fontWeight: 'bold'}}>{expectedDepthInput || '—'} ft</Text>
                  <TouchableOpacity onPress={() => setIsEditingDepth(true)} style={{padding: 5, marginLeft: 5}}>
                     <Ionicons name="pencil" size={16} color="#666" />
                  </TouchableOpacity>
@@ -486,6 +682,53 @@ export default function ProjectDetailScreen({ route, navigation }) {
         <Text style={styles.sectionText}>• Profondeur moyenne: {avgDepthRounded} ft (sur {validDepthPiles.length} pieux)</Text>
         <Text style={styles.sectionText}>• Pieux implantés: {implantedCount} / {total}</Text>
         
+        {piles.filter(p => p.implanted && !(p.depthFt > 0)).length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, marginBottom: 5 }}>
+            <Text style={{color: theme.colors.error, fontSize: 14, flexShrink: 1}}>⚠️ {piles.filter(p => p.implanted && !(p.depthFt > 0)).length} implanté(s) sans profondeur</Text>
+            <TouchableOpacity 
+               style={{ marginLeft: 10, backgroundColor: theme.colors.error, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+               onPress={() => navigation.navigate('ProjectPlan', { projectId, projectName, highlightPiles: piles.filter(p => p.implanted && !(p.depthFt > 0)).map(p=>p.id) })}
+            >
+               <Text style={{ color: 'white', fontSize: 12, fontWeight: 'bold' }}>Localiser</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {piles.filter(p => !p.implanted).length > 0 && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 5, marginBottom: 5 }}>
+            <Text style={{color: theme.colors.textMuted, fontSize: 14, flexShrink: 1}}>ℹ️ {piles.filter(p => !p.implanted).length} pieux non implantés</Text>
+            <TouchableOpacity 
+               style={{ marginLeft: 10, backgroundColor: '#333', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4 }}
+               onPress={() => navigation.navigate('ProjectPlan', { projectId, projectName, highlightPiles: piles.filter(p => !p.implanted).map(p=>p.id) })}
+            >
+               <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: 'bold' }}>Localiser</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        
+        <Text style={[styles.sectionText, {marginTop: 10, fontWeight: 'bold', color: 'white'}]}>Différentiel linéaire:</Text>
+        <Text style={styles.sectionText}>  Total: {totalDiffStr} ft</Text>
+        {Object.keys(diffByGauge).map(gauge => {
+            const item = diffByGauge[gauge];
+            const dStr = item.diff === 0 ? '—' : (item.diff > 0 ? '+' : '') + item.diff.toFixed(1);
+            
+            if (gauge === 'Inconnu' && unknownPileIds.length > 0) {
+               return (
+                  <View key={gauge} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                     <Text style={styles.sectionText}>  Calibre Inconnu: {dStr} ft (sur {item.count} pieux)</Text>
+                     <TouchableOpacity 
+                        style={{ marginLeft: 10, backgroundColor: '#333', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 4, marginBottom: 5 }}
+                        onPress={() => navigation.navigate('ProjectPlan', { projectId, projectName, highlightPiles: unknownPileIds })}
+                     >
+                        <Text style={{ color: theme.colors.primary, fontSize: 12, fontWeight: 'bold' }}>Localiser sur le plan</Text>
+                     </TouchableOpacity>
+                  </View>
+               );
+            }
+
+            return <Text key={gauge} style={styles.sectionText}>  Calibre {gauge}": {dStr} ft (sur {item.count} pieux)</Text>
+        })}
+
         <TouchableOpacity style={[styles.saveBtn, {marginTop: 15}]} onPress={handleExportPDF}>
            <Text style={styles.saveBtnText}>Exporter un rapport PDF</Text>
         </TouchableOpacity>
@@ -510,6 +753,61 @@ export default function ProjectDetailScreen({ route, navigation }) {
       >
         <Text style={styles.openPlanButtonText}>Voir les Documents Techniques</Text>
       </TouchableOpacity>
+
+      {/* Notes Section */}
+      <View style={styles.section}>
+         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10}}>
+            <Text style={styles.sectionTitle}>Notes ({notes.length})</Text>
+         </View>
+         
+         <View style={{flexDirection: 'row', marginBottom: 15}}>
+            <TextInput 
+               style={[styles.input, {flex: 1, marginBottom: 0, marginRight: 10}]}
+               placeholder="Ajouter une note..."
+               value={newNoteText}
+               onChangeText={setNewNoteText}
+            />
+            <TouchableOpacity style={[styles.gpsButton, {justifyContent: 'center'}]} onPress={handleAddNote}>
+               <Text style={styles.gpsButtonText}>Ajouter</Text>
+            </TouchableOpacity>
+         </View>
+
+         {notes.map(n => (
+            <View key={n.id} style={{flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10, backgroundColor: theme.colors.background, padding: 10, borderRadius: 8}}>
+               <TouchableOpacity 
+                  style={{marginRight: 10, marginTop: 2}}
+                  onPress={() => toggleNoteInclude(n.id, n.includeInReport)}
+               >
+                  <Ionicons 
+                     name={n.includeInReport !== false ? "checkbox" : "square-outline"} 
+                     size={24} 
+                     color={n.includeInReport !== false ? theme.colors.primary : theme.colors.border} 
+                  />
+               </TouchableOpacity>
+               <TextInput 
+                  style={{flex: 1, color: theme.colors.text, fontSize: 14, padding: 0}}
+                  defaultValue={n.text}
+                  multiline
+                  onEndEditing={async (e) => {
+                      const newText = e.nativeEvent.text.trim();
+                      if (newText && newText !== n.text) {
+                          try {
+                              await updateDoc(doc(db, 'projects', projectId, 'notes', n.id), { text: newText });
+                          } catch(err) {}
+                      } else if (!newText) {
+                          // Auto-delete if user clears the text completely
+                          try {
+                              await deleteDoc(doc(db, 'projects', projectId, 'notes', n.id));
+                          } catch(err) {}
+                      }
+                  }}
+               />
+               <TouchableOpacity style={{marginLeft: 10}} onPress={() => deleteNote(n.id)}>
+                  <Ionicons name="trash-outline" size={20} color={theme.colors.error} />
+               </TouchableOpacity>
+            </View>
+         ))}
+      </View>
 
       {/* Photos Section */}
       <View style={styles.section}>

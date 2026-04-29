@@ -44,7 +44,8 @@ export default {
     },
     "plugins": [
       "expo-sharing",
-      "expo-mail-composer"
+      "expo-mail-composer",
+      "@react-native-community/datetimepicker"
     ]
   }
 };

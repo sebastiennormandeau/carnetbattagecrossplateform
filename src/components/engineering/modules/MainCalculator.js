@@ -27,6 +27,8 @@ export default function MainCalculator() {
 
     const hammers = store.availableHammers;
 
+    const safeParse = (val) => parseFloat(String(val).replace(',', '.')) || 0;
+
     // Data Engine : Runs the math dynamically when state changes
     const resultData = useMemo(() => {
         const gauge = gauges[store.selectedGaugeIdx] || gauges[0];
@@ -37,13 +39,13 @@ export default function MainCalculator() {
         const inertiaMm4 = inertiaIn4 * 416231.426;
 
         const dataPayload = {
-            targetRu: parseFloat(store.targetRu) || 0,
-            efficiency: parseFloat(store.efficiency) || 55,
+            targetRu: safeParse(store.targetRu),
+            efficiency: safeParse(store.efficiency) || 55,
             hammerWeightKg: hammers[store.selectedHammerIdx]?.weightKg || 1500,
-            dropHeight: parseFloat(store.dropHeight) || 0,
-            lengthUnderHammer: parseFloat(store.lengthUnderHammer) || 0,
-            exposedLength: parseFloat(store.exposedLength) || 0,
-            soilReboundC3: parseFloat(store.soilReboundC3) || 2.5,
+            dropHeight: safeParse(store.dropHeight),
+            lengthUnderHammer: safeParse(store.lengthUnderHammer),
+            exposedLength: safeParse(store.exposedLength),
+            soilReboundC3: safeParse(store.soilReboundC3) || 2.5,
             areaMm2,
             inertiaMm4,
             elasticModulusMPa: 200000, 
