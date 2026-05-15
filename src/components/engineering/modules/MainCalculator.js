@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Switch } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import TooltipIcon from '../tooltip/TooltipIcon';
 import usePilingStore from '../../../store/usePilingStore';
-import { calculatePilingData } from '../../../utils/engineeringMath';
+import { calculatePilingData, getC3FromSPT } from '../../../utils/engineeringMath';
+import { generatePilingReport, generateRefusalChartPdf } from '../../../utils/pdfGenerator';
 
 export default function MainCalculator() {
     const store = usePilingStore();
@@ -24,6 +25,10 @@ export default function MainCalculator() {
     ];
 
     const [isMetric, setIsMetric] = useState(false);
+    const [soilInputMode, setSoilInputMode] = useState('manual');
+    const [sptN, setSptN] = useState('');
+    const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+    const [isGeneratingChart, setIsGeneratingChart] = useState(false);
 
     const hammers = store.availableHammers;
 
@@ -38,24 +43,60 @@ export default function MainCalculator() {
         const inertiaIn4 = (Math.PI / 64) * (Math.pow(gauge.od, 4) - Math.pow(ID, 4));
         const inertiaMm4 = inertiaIn4 * 416231.426;
 
+        const activeHammer = hammers[store.selectedHammerIdx] || {};
+        const capThicknessMm = (activeHammer.capThicknessIn || 7) * 25.4; 
+        const capAreaMm2 = (activeHammer.capAreaSqIn || 240.25) * 645.16; 
+        const capModulusMPa = activeHammer.capModulusMPa || 900;
+
+        const standardLength = safeParse(store.lengthUnderHammer);
+        const standardExposed = safeParse(store.exposedLength);
+        const pdaLength = safeParse(store.pdaLength);
+        
+        let finalExposedLength = standardExposed;
+        let pdaCutError = false;
+
+        if (store.isPdaMode && pdaLength > 0 && standardLength > 0) {
+            const buriedLength = standardLength - standardExposed;
+            finalExposedLength = pdaLength - buriedLength;
+            if (finalExposedLength < 0) {
+                pdaCutError = true;
+                finalExposedLength = 0;
+            }
+        }
+
         const dataPayload = {
             targetRu: safeParse(store.targetRu),
             efficiency: safeParse(store.efficiency) || 55,
-            hammerWeightKg: hammers[store.selectedHammerIdx]?.weightKg || 1500,
-            dropHeight: safeParse(store.dropHeight),
-            lengthUnderHammer: safeParse(store.lengthUnderHammer),
-            exposedLength: safeParse(store.exposedLength),
+            hammerWeightKg: activeHammer.weightKg || 1500,
+            dropHeight: store.isPdaMode ? safeParse(store.pdaDropHeight) : safeParse(store.dropHeight),
+            lengthUnderHammer: store.isPdaMode ? safeParse(store.pdaLength) : safeParse(store.lengthUnderHammer),
+            exposedLength: finalExposedLength,
             soilReboundC3: safeParse(store.soilReboundC3) || 2.5,
             areaMm2,
             inertiaMm4,
             elasticModulusMPa: 200000, 
-            linearWeightKgPerMeter: gauge.weight
+            linearWeightKgPerMeter: gauge.weight,
+            steelGrade: store.steelGrade || 345,
+            capThicknessMm,
+            capAreaMm2,
+            capModulusMPa
         };
 
-        return calculatePilingData(dataPayload);
+        const res = calculatePilingData(dataPayload);
+        
+        if (pdaCutError) {
+            res.alerts.unshift({
+                type: 'DANGER',
+                message: "Erreur : Coupe sous le niveau du sol. La nouvelle longueur totale est plus courte que la partie enfouie."
+            });
+            res.refusalTargetMm = 0;
+        }
+        res.dynamicExposedLength = finalExposedLength;
+        return res;
     }, [
         store.targetRu, store.efficiency, store.selectedHammerIdx, store.dropHeight,
-        store.lengthUnderHammer, store.exposedLength, store.soilReboundC3, store.selectedGaugeIdx
+        store.lengthUnderHammer, store.exposedLength, store.soilReboundC3, store.selectedGaugeIdx,
+        store.isPdaMode, store.pdaLength, store.pdaDropHeight, store.steelGrade
     ]);
 
     // Handle blows per batch conversion
@@ -95,9 +136,72 @@ export default function MainCalculator() {
         }
     };
 
+    const handleGeneratePdf = async () => {
+        setIsGeneratingPdf(true);
+        try {
+            await generatePilingReport(store, resultData);
+        } catch (error) {
+            console.error("PDF Generation Error: ", error);
+        } finally {
+            setIsGeneratingPdf(false);
+        }
+    };
+
+    const handleGenerateChart = async () => {
+        setIsGeneratingChart(true);
+        try {
+            await generateRefusalChartPdf(store);
+        } catch (error) {
+            console.error("Chart PDF Generation Error: ", error);
+        } finally {
+            setIsGeneratingChart(false);
+        }
+    };
+
     return (
         <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
             
+            {/* PDA TOGGLE */}
+            <View style={[styles.card, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderColor: store.isPdaMode ? '#00BCD4' : 'transparent', borderWidth: 2 }]}>
+                <View>
+                    <Text style={[styles.sectionTitle, { marginBottom: 2 }]}>Mode PDA (Re-strike)</Text>
+                    <Text style={styles.label}>Essai de chargement dynamique</Text>
+                </View>
+                <Switch 
+                    value={store.isPdaMode} 
+                    onValueChange={(val) => store.updateField('isPdaMode', val)} 
+                    trackColor={{ false: "#767577", true: "#00BCD4" }}
+                    thumbColor={store.isPdaMode ? "#ffffff" : "#f4f3f4"}
+                />
+            </View>
+
+            {/* PDA INPUTS */}
+            {store.isPdaMode && (
+                <View style={[styles.card, { backgroundColor: 'rgba(0, 188, 212, 0.05)', borderColor: '#00BCD4', borderWidth: 1 }]}>
+                    <Text style={[styles.sectionTitle, { color: '#008BA3' }]}>Paramètres du Pieu Coupé</Text>
+                    
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Nouvelle longueur totale après coupe (pi)</Text>
+                        <TextInput 
+                            style={styles.highInput} 
+                            keyboardType="numeric" 
+                            value={store.pdaLength.toString()} 
+                            onChangeText={(v) => store.updateField('pdaLength', v)}
+                        />
+                    </View>
+
+                    <View style={styles.inputGroup}>
+                        <Text style={styles.label}>Hauteur de chute pour le test PDA (m)</Text>
+                        <TextInput 
+                            style={styles.highInput} 
+                            keyboardType="numeric" 
+                            value={store.pdaDropHeight.toString()} 
+                            onChangeText={(v) => store.updateField('pdaDropHeight', v)}
+                        />
+                    </View>
+                </View>
+            )}
+
             {/* ZONE A: Paramètres */}
             <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Propriétés du Pieu</Text>
@@ -112,6 +216,27 @@ export default function MainCalculator() {
                             dropdownIconColor="#000"
                         >
                             {gauges.map((g, i) => <Picker.Item key={i} label={g.label} value={i} />)}
+                        </Picker>
+                    </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                    <View style={styles.labelRow}>
+                        <Text style={styles.label}>Grade de l'Acier (Limite d'élasticité)</Text>
+                        <TooltipIcon 
+                            title="Grade de l'acier" 
+                            text="ASTM A252 Grade 3 (Pieux tubulaires standard) = 310 MPa. CSA G40.21 350W ou A500 Gr C (Acier structural) = 345 MPa." 
+                        />
+                    </View>
+                    <View style={styles.pickerContainer}>
+                        <Picker
+                            selectedValue={store.steelGrade}
+                            onValueChange={(val) => store.updateField('steelGrade', Number(val))}
+                            style={{ color: '#000' }}
+                            dropdownIconColor="#000"
+                        >
+                            <Picker.Item label="345 MPa (50 ksi - Structural / 350W)" value={345} />
+                            <Picker.Item label="310 MPa (45 ksi - ASTM A252 Grade 3)" value={310} />
                         </Picker>
                     </View>
                 </View>
@@ -134,12 +259,20 @@ export default function MainCalculator() {
                             text="La portion du tuyau qui dépasse dans les airs. Sert à calculer la limite de flambement (Euler). Plus le tuyau est long hors de terre, plus le risque qu'il plie sous un grand coup est élevé." 
                         />
                     </View>
-                    <TextInput 
-                        style={styles.highInput} 
-                        keyboardType="numeric" 
-                        value={store.exposedLength.toString()} 
-                        onChangeText={(v) => store.updateField('exposedLength', v)}
-                    />
+                    {store.isPdaMode ? (
+                        <View style={[styles.highInput, { backgroundColor: '#E0E0E0', justifyContent: 'center' }]}>
+                            <Text style={{ fontSize: 18, color: '#757575', fontWeight: 'bold' }}>
+                                🔒 {resultData.dynamicExposedLength > 0 ? resultData.dynamicExposedLength.toFixed(1) : "0.0"} (Déduit de la coupe)
+                            </Text>
+                        </View>
+                    ) : (
+                        <TextInput 
+                            style={styles.highInput} 
+                            keyboardType="numeric" 
+                            value={store.exposedLength.toString()} 
+                            onChangeText={(v) => store.updateField('exposedLength', v)}
+                        />
+                    )}
                 </View>
 
             </View>
@@ -235,26 +368,55 @@ export default function MainCalculator() {
                 </View>
 
                 <View style={styles.inputGroup}>
-                    <View style={styles.labelRow}>
-                        <Text style={styles.label}>Rebond du Sol (c3 - mm)</Text>
-                        <TooltipIcon 
-                            title="Rebond du Sol" 
-                            text="La compression élastique (l'effet trampoline) du sol sous la pointe du pieu. Références : Till très dense = 2.5 mm | Roc rigide = 2.0 mm | Roc massif pur = 1.5 mm." 
-                        />
-                    </View>
-                    <View style={styles.pickerContainer}>
-                        <Picker
-                            selectedValue={store.soilReboundC3}
-                            onValueChange={(val) => store.updateField('soilReboundC3', Number(val))}
-                            style={{ color: '#000' }}
-                            dropdownIconColor="#000"
+                    <View style={[styles.labelRow, { justifyContent: 'space-between' }]}>
+                        <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                            <Text style={styles.label}>Rebond du Sol (c3)</Text>
+                            <TooltipIcon 
+                                title="Rebond du Sol" 
+                                text="La compression élastique (l'effet trampoline) du sol sous la pointe du pieu. Références : Till très dense = 2.5 mm | Roc rigide = 2.0 mm | Roc massif pur = 1.5 mm." 
+                            />
+                        </View>
+                        <TouchableOpacity 
+                            onPress={() => setSoilInputMode(prev => prev === 'manual' ? 'spt' : 'manual')} 
+                            style={styles.unitToggleBtn}
                         >
-                            <Picker.Item label="Till très dense (2.5 mm)" value={2.5} />
-                            <Picker.Item label="Roc rigide (2.0 mm)" value={2.0} />
-                            <Picker.Item label="Roc massif pur (1.5 mm)" value={1.5} />
-                            <Picker.Item label="Sable (3.0 mm)" value={3.0} />
-                        </Picker>
+                            <Text style={styles.unitToggleText}>{soilInputMode === 'manual' ? "🔄 SPT" : "🔄 Manuel"}</Text>
+                        </TouchableOpacity>
                     </View>
+
+                    {soilInputMode === 'manual' ? (
+                        <View style={styles.pickerContainer}>
+                            <Picker
+                                selectedValue={store.soilReboundC3}
+                                onValueChange={(val) => store.updateField('soilReboundC3', Number(val))}
+                                style={{ color: '#000' }}
+                                dropdownIconColor="#000"
+                            >
+                                <Picker.Item label="Till très dense (2.5 mm)" value={2.5} />
+                                <Picker.Item label="Roc rigide (2.0 mm)" value={2.0} />
+                                <Picker.Item label="Roc massif pur (1.5 mm)" value={1.5} />
+                                <Picker.Item label="Sable (3.0 mm)" value={3.0} />
+                            </Picker>
+                        </View>
+                    ) : (
+                        <View>
+                            <TextInput 
+                                style={[styles.highInput, { borderColor: '#1976D2', borderWidth: 2 }]} 
+                                keyboardType="numeric" 
+                                placeholder="Indice N (ex: 50)"
+                                placeholderTextColor="#9e9e9e"
+                                value={sptN} 
+                                onChangeText={(v) => {
+                                    setSptN(v);
+                                    const c3Val = getC3FromSPT(v);
+                                    store.updateField('soilReboundC3', c3Val);
+                                }}
+                            />
+                            <Text style={{marginTop: 8, fontSize: 16, fontWeight: 'bold', color: '#1976D2'}}>
+                                Rebond généré : {store.soilReboundC3} mm
+                            </Text>
+                        </View>
+                    )}
                 </View>
 
                 <View style={styles.inputGroup}>
@@ -284,6 +446,43 @@ export default function MainCalculator() {
                     ))}
                 </View>
             )}
+
+            {/* PDA EXPLANATORY NOTE */}
+            {store.isPdaMode && (
+                <View style={[styles.alertBox, { backgroundColor: '#E0F7FA', borderLeftColor: '#00BCD4', marginBottom: 20 }]}>
+                    <Text style={{ fontSize: 15, color: '#006064', fontWeight: '500', lineHeight: 22 }}>
+                        <Text style={{ fontWeight: 'bold' }}>Note : </Text>
+                        Un refus plus grand lors du test PDA est normal. Il est dû à la réduction de la masse du pieu et de la compression élastique (c2) suite à la coupe, et non à un relâchement du sol.
+                    </Text>
+                </View>
+            )}
+
+            {/* ZONE C: Action PDF */}
+            <View style={styles.pdfActionContainer}>
+                <TouchableOpacity 
+                    style={styles.pdfButton} 
+                    onPress={handleGeneratePdf}
+                    disabled={isGeneratingPdf || isGeneratingChart}
+                >
+                    {isGeneratingPdf ? (
+                        <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                        <Text style={styles.pdfButtonText}>📄 Générer Note de Calcul PDF</Text>
+                    )}
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                    style={styles.chartButton} 
+                    onPress={handleGenerateChart}
+                    disabled={isGeneratingPdf || isGeneratingChart}
+                >
+                    {isGeneratingChart ? (
+                        <ActivityIndicator color="#1976D2" />
+                    ) : (
+                        <Text style={styles.chartButtonText}>📊 Générer Abaque de Refus (Tous Calibres)</Text>
+                    )}
+                </TouchableOpacity>
+            </View>
 
             {/* SPACER FOR STICKY BOTTOM */}
             <View style={{height: 120}}></View>
@@ -420,5 +619,50 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: 'bold',
         color: '#1976D2'
+    },
+    pdfActionContainer: {
+        marginTop: 10,
+        marginBottom: 20,
+        alignItems: 'center'
+    },
+    pdfButton: {
+        backgroundColor: '#1976D2',
+        width: '100%',
+        paddingVertical: 18,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3.84,
+        marginBottom: 10
+    },
+    pdfButtonText: {
+        color: '#FFFFFF',
+        fontSize: 18,
+        fontWeight: 'bold',
+        textTransform: 'uppercase'
+    },
+    chartButton: {
+        backgroundColor: '#FFFFFF',
+        width: '100%',
+        paddingVertical: 15,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+        elevation: 2,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 2,
+        borderWidth: 2,
+        borderColor: '#1976D2'
+    },
+    chartButtonText: {
+        color: '#1976D2',
+        fontSize: 16,
+        fontWeight: 'bold'
     }
 });

@@ -11,8 +11,9 @@ import { db, storage } from '../config/firebase';
 import { doc, onSnapshot, collection, query, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { theme } from '../theme/Theme';
-import { FONDABEC_LOGO_BASE64 } from '../config/fondabecLogoBase64';
 import { Ionicons } from '@expo/vector-icons';
+import usePilingStore from '../store/usePilingStore';
+import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
 
 export default function ProjectDetailScreen({ route, navigation }) {
   const { projectId, projectName } = route.params;
@@ -30,6 +31,8 @@ export default function ProjectDetailScreen({ route, navigation }) {
   const [collapsedShapes, setCollapsedShapes] = useState({});
   const [isEditingName, setIsEditingName] = useState(false);
   const [isEditingDepth, setIsEditingDepth] = useState(false);
+
+  const reportLogo = usePilingStore(state => state.reportLogo);
 
   // Set the title dynamically based on the project name passed
   useLayoutEffect(() => {
@@ -202,6 +205,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
          Alert.alert("Patientez", "Optimisation et téléversement...");
          const uri = result.assets[0].uri;
          
+         // Solution: on passe uniquement width sans aucune autre clé pour éviter le NullPointerException
          const manipResult = await ImageManipulator.manipulateAsync(
             uri,
             [{ resize: { width: 1024 } }],
@@ -355,6 +359,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
            const tempFile = FileSystem.cacheDirectory + p.id + '_raw.jpg';
            const downloadObj = await FileSystem.downloadAsync(p.url, tempFile);
            
+           // Solution: on passe uniquement width sans aucune autre clé pour éviter le NullPointerException
            const manipResult = await ImageManipulator.manipulateAsync(
               downloadObj.uri,
               [{ resize: { width: 800 } }],
@@ -394,7 +399,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
             <style>
               body { font-family: Helvetica, Arial, sans-serif; padding: 10px 30px; color: #333; margin: 0; }
               .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px; }
-              .logo { width: 180px; }
+              .logo-img { max-height: 80px; width: auto; max-width: 250px; }
               .title-box { display: flex; flex-direction: column; flex: 1; margin-left: 20px; margin-top: 5px; }
               .title { color: #003366; font-size: 24px; font-weight: bold; margin: 0; }
               .subtitle { font-size: 14px; color: #333; margin-top: 8px; }
@@ -416,7 +421,7 @@ export default function ProjectDetailScreen({ route, navigation }) {
           </head>
           <body>
             <div class="header">
-              <img src="${FONDABEC_LOGO_BASE64}" class="logo" />
+              <img src="${reportLogo || SMART_PILING_LOGO_BASE64}" class="logo-img" />
               <div class="title-box">
                 <p class="title">Rapport de Battage de Pieux</p>
                 <p class="subtitle">${project?.name || 'Projet à déterminer'}</p>

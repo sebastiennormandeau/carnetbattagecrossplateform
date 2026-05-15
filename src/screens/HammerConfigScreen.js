@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { Picker } from '@react-native-picker/picker';
 import usePilingStore from '../store/usePilingStore';
 import { theme } from '../theme/Theme';
 
@@ -9,7 +10,18 @@ export default function HammerConfigScreen() {
     const [name, setName] = useState('');
     const [weightKg, setWeightKg] = useState('');
     const [efficiency, setEfficiency] = useState('55');
+    
+    const [capMaterial, setCapMaterial] = useState('UHMW');
+    const [capThicknessIn, setCapThicknessIn] = useState('7');
+    const [capAreaSqIn, setCapAreaSqIn] = useState('240.25');
+    
     const [isSubmitting, setIsSubmitting] = useState(false);
+
+    const materials = {
+        'UHMW': 900,
+        'Pruche': 650,
+        'Micarta': 2700
+    };
 
     const handleSaveHammer = async () => {
         if (!name || !weightKg || !efficiency) {
@@ -18,20 +30,22 @@ export default function HammerConfigScreen() {
         }
 
         setIsSubmitting(true);
+        const payload = {
+            name,
+            weightKg: Number(weightKg),
+            defaultEfficiency: Number(efficiency),
+            capMaterial,
+            capThicknessIn: Number(capThicknessIn),
+            capAreaSqIn: Number(capAreaSqIn),
+            capModulusMPa: materials[capMaterial] || 900
+        };
+
         try {
             if (editingId) {
-                await store.updateHammer(editingId, {
-                    name,
-                    weightKg: Number(weightKg),
-                    defaultEfficiency: Number(efficiency)
-                });
+                await store.updateHammer(editingId, payload);
                 alert('Marteau modifié avec succès !');
             } else {
-                await store.addHammer({
-                    name,
-                    weightKg: Number(weightKg),
-                    defaultEfficiency: Number(efficiency)
-                });
+                await store.addHammer(payload);
                 alert('Marteau ajouté avec succès !');
             }
             resetForm();
@@ -58,6 +72,10 @@ export default function HammerConfigScreen() {
         setName(hammer.name || hammer.label || '');
         setWeightKg(hammer.weightKg ? hammer.weightKg.toString() : '');
         setEfficiency(hammer.defaultEfficiency ? hammer.defaultEfficiency.toString() : '55');
+        
+        setCapMaterial(hammer.capMaterial || 'UHMW');
+        setCapThicknessIn(hammer.capThicknessIn ? hammer.capThicknessIn.toString() : '7');
+        setCapAreaSqIn(hammer.capAreaSqIn ? hammer.capAreaSqIn.toString() : '240.25');
     };
 
     const resetForm = () => {
@@ -65,6 +83,9 @@ export default function HammerConfigScreen() {
         setName('');
         setWeightKg('');
         setEfficiency('55');
+        setCapMaterial('UHMW');
+        setCapThicknessIn('7');
+        setCapAreaSqIn('240.25');
     };
 
     return (
@@ -83,6 +104,9 @@ export default function HammerConfigScreen() {
                                 <Text style={styles.hammerName}>{hammer.name || hammer.label}</Text>
                                 <Text style={styles.hammerDetails}>
                                     Poids: {hammer.weightKg} kg  |  Efficacité: {hammer.defaultEfficiency || 55}%
+                                </Text>
+                                <Text style={styles.hammerSubDetails}>
+                                    Casque: {hammer.capMaterial || 'UHMW'} ({hammer.capThicknessIn || 7}" x {hammer.capAreaSqIn || 240.25} po²)
                                 </Text>
                             </View>
                             <View style={styles.hammerActions}>
@@ -136,6 +160,48 @@ export default function HammerConfigScreen() {
                     />
                 </View>
 
+                <Text style={styles.subSectionTitle}>Configuration du Casque</Text>
+
+                <View style={styles.inputGroup}>
+                    <Text style={styles.label}>Matériau du coussin</Text>
+                    <View style={styles.pickerContainer}>
+                        <Picker
+                            selectedValue={capMaterial}
+                            onValueChange={(itemValue) => setCapMaterial(itemValue)}
+                            style={[styles.picker, { color: '#000000' }]}
+                            dropdownIconColor="#000000"
+                            mode="dialog"
+                        >
+                            <Picker.Item label="Plastique UHMW (900 MPa)" value="UHMW" />
+                            <Picker.Item label="Bois de Pruche (Compacté) (650 MPa)" value="Pruche" />
+                            <Picker.Item label="Micarta (2700 MPa)" value="Micarta" />
+                        </Picker>
+                    </View>
+                </View>
+
+                <View style={styles.row}>
+                    <View style={[styles.inputGroup, {flex: 1, marginRight: 5}]}>
+                        <Text style={styles.label}>Épaisseur (po)</Text>
+                        <TextInput 
+                            style={styles.highInput} 
+                            keyboardType="numeric"
+                            value={capThicknessIn}
+                            onChangeText={setCapThicknessIn}
+                            placeholderTextColor="#9E9E9E"
+                        />
+                    </View>
+                    <View style={[styles.inputGroup, {flex: 1, marginLeft: 5}]}>
+                        <Text style={styles.label}>Surface (po²)</Text>
+                        <TextInput 
+                            style={styles.highInput} 
+                            keyboardType="numeric"
+                            value={capAreaSqIn}
+                            onChangeText={setCapAreaSqIn}
+                            placeholderTextColor="#9E9E9E"
+                        />
+                    </View>
+                </View>
+
                 <View style={styles.formActions}>
                     {editingId && (
                         <TouchableOpacity style={[styles.cancelButton]} onPress={resetForm} disabled={isSubmitting}>
@@ -186,6 +252,16 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         textTransform: 'uppercase'
     },
+    subSectionTitle: {
+        fontSize: 18,
+        fontWeight: 'bold',
+        color: '#1976D2',
+        marginTop: 10,
+        marginBottom: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#BBDEFB',
+        paddingBottom: 4
+    },
     emptyText: {
         fontSize: 16,
         color: '#757575',
@@ -211,6 +287,11 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#757575',
         marginTop: 4
+    },
+    hammerSubDetails: {
+        fontSize: 12,
+        color: '#9E9E9E',
+        marginTop: 2
     },
     hammerActions: {
         flexDirection: 'row',
@@ -246,6 +327,21 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         fontSize: 18,
         color: '#000'
+    },
+    pickerContainer: {
+        borderWidth: 1,
+        borderColor: '#BDBDBD',
+        borderRadius: 8,
+        backgroundColor: '#FAFAFA',
+        overflow: 'hidden'
+    },
+    picker: {
+        height: 60,
+        width: '100%',
+    },
+    row: {
+        flexDirection: 'row',
+        justifyContent: 'space-between'
     },
     formActions: {
         flexDirection: 'row',

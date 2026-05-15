@@ -4,14 +4,15 @@ import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
 // Your web app's Firebase configuration
-// These values mirror what is in google-services.json for your Firebase project "fondabecbattage"
+// These values mirror what is in google-services.json for your Firebase project "smart-piling"
 const firebaseConfig = {
-  apiKey: "AIzaSyDQXUUrG6615_RdHkr07ZqoyAI2o4E-2h8",
-  authDomain: "fondabecbattage.firebaseapp.com", // Usually project_id.firebaseapp.com
-  projectId: "fondabecbattage",
-  storageBucket: "fondabecbattage.firebasestorage.app",
-  messagingSenderId: "498873991138",
-  appId: "1:498873991138:web:a14f43a3db2350c65ec3bb", // Note: This might be slightly different for Web vs Android in the Firebase Console, but standard web init works with projectId + apiKey most of the time.
+  apiKey: "AIzaSyBpZre29yn0ljhXumREbEE-7z04R21oIJE",
+  authDomain: "smart-piling-app.firebaseapp.com",
+  projectId: "smart-piling-app",
+  storageBucket: "smart-piling-app.firebasestorage.app",
+  messagingSenderId: "523755259959",
+  appId: "1:523755259959:web:b2deca231174d06e6917b2",
+  measurementId: "G-KQ6QW6SL0Y"
 };
 
 // Initialize Firebase

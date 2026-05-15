@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, ScrollView } from 'react-native';
 import { auth, db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { theme } from '../theme/Theme';
@@ -48,11 +48,11 @@ export default function HomeScreen({ navigation }) {
     <View style={styles.container}>
       
       <View style={styles.header}>
-        <Text style={styles.title}>Fondabec Battage</Text>
+        <Text style={styles.title}>Smart Piling</Text>
         <Text style={styles.subtitle}>Sélectionnez un outil</Text>
       </View>
 
-      <View style={styles.menuContainer}>
+      <ScrollView style={styles.menuContainer} showsVerticalScrollIndicator={false}>
         {tools.carnet && (
           <TouchableOpacity 
             style={styles.card}
@@ -112,7 +112,7 @@ export default function HomeScreen({ navigation }) {
              <Text style={styles.cardDesc}>Gérer les accès utilisateurs et les délégations de projets</Text>
            </TouchableOpacity>
         )}
-      </View>
+      </ScrollView>
 
     </View>
   );

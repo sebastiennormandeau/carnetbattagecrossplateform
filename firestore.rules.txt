@@ -88,8 +88,12 @@ service cloud.firestore {
     }
 
     match /hammers/{hammerId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read, delete: if request.auth != null;
+      allow create, update: if request.auth != null && 
+                            request.resource.data.keys().hasAll(['capThicknessIn', 'capAreaSqIn', 'capModulusMPa']) &&
+                            request.resource.data.capThicknessIn is number &&
+                            request.resource.data.capAreaSqIn is number &&
+                            request.resource.data.capModulusMPa is number;
     }
   }
 }

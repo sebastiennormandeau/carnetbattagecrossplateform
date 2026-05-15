@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Switch, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Switch, ScrollView, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImagePicker from 'expo-image-picker';
 import { db, auth } from '../config/firebase';
 import { theme } from '../theme/Theme';
-import { FONDABEC_LOGO_BASE64 } from '../config/fondabecLogoBase64';
+import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
+import usePilingStore from '../store/usePilingStore';
 
 export default function AdminScreen({ navigation }) {
     const [users, setUsers] = useState([]);
@@ -19,6 +21,10 @@ export default function AdminScreen({ navigation }) {
     const [shifts, setShifts] = useState([]);
     const [deductLunch, setDeductLunch] = useState(false);
     const [lunchMinutes, setLunchMinutes] = useState('30');
+    
+    // Store Zustand pour le logo
+    const reportLogo = usePilingStore(state => state.reportLogo);
+    const setReportLogo = usePilingStore(state => state.setReportLogo);
     
     // Date Picker state
     const [startDate, setStartDate] = useState(() => {
@@ -146,6 +152,27 @@ export default function AdminScreen({ navigation }) {
         }
     };
 
+    const handlePickLogo = async () => {
+        let result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.8,
+            base64: true,
+        });
+
+        if (!result.canceled && result.assets[0].base64) {
+            const base64String = `data:image/jpeg;base64,${result.assets[0].base64}`;
+            setReportLogo(base64String);
+            Alert.alert("Succès", "Le logo a été mis à jour avec succès pour vos futurs rapports PDF !");
+        }
+    };
+
+    const handleResetLogo = () => {
+        setReportLogo(SMART_PILING_LOGO_BASE64);
+        Alert.alert("Succès", "Le logo par défaut a été restauré.");
+    };
+
     const handleExportPayrollPDF = async () => {
         try {
             Alert.alert("Génération", "Préparation du rapport de paie...");
@@ -205,7 +232,7 @@ export default function AdminScreen({ navigation }) {
                 <style>
                     body { font-family: Helvetica, Arial, sans-serif; padding: 10px 30px; color: #333; margin: 0; }
                     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px; }
-                    .logo { width: 180px; }
+                    .logo-img { max-height: 80px; width: auto; max-width: 250px; }
                     .title-box { display: flex; flex-direction: column; flex: 1; margin-left: 20px; margin-top: 5px; }
                     .title { color: #003366; font-size: 24px; font-weight: bold; margin: 0; }
                     .subtitle { font-size: 14px; color: #333; margin-top: 8px; }
@@ -219,7 +246,7 @@ export default function AdminScreen({ navigation }) {
                 </head>
                 <body>
                 <div class="header">
-                    <img src="${FONDABEC_LOGO_BASE64}" class="logo" />
+                    <img src="${reportLogo || SMART_PILING_LOGO_BASE64}" class="logo-img" />
                     <div class="title-box">
                     <p class="title">Sommaire de Paie (Horodateur)</p>
                     <p class="subtitle">Période: ${sDateStr} au ${eDateStr}</p>
@@ -279,6 +306,12 @@ export default function AdminScreen({ navigation }) {
                     onPress={() => { setSelectedTab('SHIFTS'); setSelectedProject(null); }}
                 >
                     <Text style={[styles.tabText, selectedTab === 'SHIFTS' && styles.activeTabText]}>Horodateur</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.tab, selectedTab === 'SETTINGS' && styles.activeTab]} 
+                    onPress={() => { setSelectedTab('SETTINGS'); setSelectedProject(null); }}
+                >
+                    <Text style={[styles.tabText, selectedTab === 'SETTINGS' && styles.activeTabText]}>Paramètres</Text>
                 </TouchableOpacity>
             </View>
 
@@ -561,6 +594,29 @@ export default function AdminScreen({ navigation }) {
                     }}
                 />
                 </>
+            )}
+
+            {selectedTab === 'SETTINGS' && (
+                <ScrollView contentContainerStyle={{ padding: 20 }}>
+                    <View style={styles.userCard}>
+                        <Text style={{ color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 15 }}>Personnalisation des Rapports PDF</Text>
+                        <Text style={{ color: theme.colors.textMuted, marginBottom: 15 }}>
+                            Ce logo apparaîtra en haut à gauche de tous les rapports PDF générés par l'application.
+                        </Text>
+                        
+                        <View style={{ alignItems: 'center', marginBottom: 20, backgroundColor: 'white', padding: 10, borderRadius: 10 }}>
+                            <Image source={{ uri: reportLogo }} style={{ height: 80, width: 200, resizeMode: 'contain' }} alt="Logo actuel" />
+                        </View>
+
+                        <TouchableOpacity style={[styles.exportBtn, { marginTop: 0 }]} onPress={handlePickLogo}>
+                            <Text style={styles.exportBtnText}>🖼️ Choisir une image (Galerie)</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity style={[styles.exportBtn, { marginTop: 10, backgroundColor: '#333' }]} onPress={handleResetLogo}>
+                            <Text style={[styles.exportBtnText, { color: 'white' }]}>🔄 Restaurer le logo par défaut</Text>
+                        </TouchableOpacity>
+                    </View>
+                </ScrollView>
             )}
 
         </SafeAreaView>

@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { collection, getDocs, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
 
 const usePilingStore = create((set, get) => ({
     // Paramètres du Pieu
     selectedGaugeIdx: 0, // Idx dans la liste des calibres
+    steelGrade: 345,     // Limite d'élasticité (MPa)
     lengthUnderHammer: "", // Longueur totale sous le marteau (pi)
     exposedLength: "",     // Longueur hors sol (pi)
     
@@ -25,16 +27,27 @@ const usePilingStore = create((set, get) => ({
     measuredRefusal: "",   // mm (Outil A Inversé)
     cutLength: "",         // pi (Outil B PDA)
     targetPDA: "",         // kN (Outil B PDA)
+    isPdaMode: false,
+    pdaLength: "",         // pi
+    pdaDropHeight: 1.524,  // m
+
+    // Identité Visuelle
+    reportLogo: SMART_PILING_LOGO_BASE64,
 
     // Actions
+    setReportLogo: (base64String) => set({ reportLogo: base64String }),
     updateField: (field, value) => set((state) => ({ ...state, [field]: value })),
     resetFields: () => set({
+        steelGrade: 345,
         lengthUnderHammer: "",
         exposedLength: "",
         targetRu: "",
         measuredRefusal: "",
         cutLength: "",
-        targetPDA: ""
+        targetPDA: "",
+        isPdaMode: false,
+        pdaLength: "",
+        pdaDropHeight: 1.524
     }),
 
     // --- Actions Asynchrones Firebase ---

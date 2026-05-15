@@ -2,20 +2,21 @@ import 'dotenv/config';
 
 export default {
   "expo": {
-    "name": "CarnetBattageCrossPlatform",
-    "slug": "CarnetBattageCrossPlatform",
+    "name": "smart-piling",
+    "slug": "smart-piling",
+    "owner": "vibe-coding-mind",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon.jpg",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/icon.jpg",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.VibeCodingMind.PilingWork",
+      "bundleIdentifier": "com.VibeCodingMind.SmartPiling",
       "config": {
         "googleMapsApiKey": process.env.GOOGLE_MAPS_API_KEY_IOS
       }
@@ -23,11 +24,11 @@ export default {
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/icon.jpg",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.VibeCodingMind.PilingWork",
+      "package": "com.VibeCodingMind.SmartPiling",
       "config": {
         "googleMaps": {
           "apiKey": process.env.GOOGLE_MAPS_API_KEY_ANDROID
@@ -35,7 +36,7 @@ export default {
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png",
+      "favicon": "./assets/icon.jpg",
       "config": {
         "googleMaps": {
           "apiKey": process.env.GOOGLE_MAPS_API_KEY_WEB

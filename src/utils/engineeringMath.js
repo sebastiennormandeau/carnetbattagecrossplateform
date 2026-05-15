@@ -5,7 +5,8 @@ export function calculatePilingData(data) {
     const { 
         targetRu, efficiency, hammerWeightKg, dropHeight, 
         lengthUnderHammer, exposedLength, areaMm2, inertiaMm4, 
-        elasticModulusMPa, soilReboundC3, linearWeightKgPerMeter 
+        elasticModulusMPa, soilReboundC3, linearWeightKgPerMeter,
+        capThicknessMm, capAreaMm2, capModulusMPa
     } = data;
 
     let alerts = [];
@@ -26,10 +27,12 @@ export function calculatePilingData(data) {
     // Ru_max: Force générée si s = 0 (refus absolu sur le roc)
     // a*Ru^2 + b*Ru - Energy = 0
     const l_mm = lengthUnderHammer * 304.8;
-    const c1 = 2.5; 
     const c3 = soilReboundC3;
-    const a_max = l_mm / (2 * areaMm2 * elasticModulusMPa) * 1000; // *1000 pour N -> kN
-    const b_max = (c1 + c3) / 2;
+    
+    const K_acier = l_mm / (areaMm2 * elasticModulusMPa);
+    const K_cap = capThicknessMm / (capAreaMm2 * capModulusMPa);
+    const a_max = (K_acier + K_cap) * 1000 / 2; // *1000 pour N -> kN
+    const b_max = c3 / 2;
     
     let ruMaxKn = 0;
     const discriminantMax = Math.pow(b_max, 2) - (4 * a_max * (-availableEnergy));
@@ -37,8 +40,8 @@ export function calculatePilingData(data) {
         ruMaxKn = (-b_max + Math.sqrt(discriminantMax)) / (2 * a_max);
     }
 
-    // --- 3. Alerte Limite d'Acier (Grade 3 = 310 MPa) ---
-    const STEEL_YIELD_MPA = 310;
+    // --- 3. Alerte Limite d'Acier (Configurable) ---
+    const STEEL_YIELD_MPA = data.steelGrade || 345;
     const maxStructuralCapacityKn = (areaMm2 * STEEL_YIELD_MPA) / 1000;
     
     if (targetRu > maxStructuralCapacityKn) {
@@ -47,9 +50,13 @@ export function calculatePilingData(data) {
             message: `Alerte : La charge cible (${targetRu.toFixed(0)} kN) dépasse la limite structurelle de l'acier (${maxStructuralCapacityKn.toFixed(0)} kN).`
         });
     } else if (ruMaxKn > maxStructuralCapacityKn) {
+        const maxEnergyKnMm = (a_max * Math.pow(maxStructuralCapacityKn, 2)) + (b_max * maxStructuralCapacityKn);
+        const safeEnergyKnMm = maxEnergyKnMm / (effRatio * impactRatio);
+        const safeDropHeightM = safeEnergyKnMm / (hammerWeightKn * 1000);
+
         alerts.push({
             type: 'WARNING',
-            message: `Attention : Sur un refus strict, l'impact de ce marteau générera ${ruMaxKn.toFixed(0)} kN, ce qui écrasera l'acier (Limite: ${maxStructuralCapacityKn.toFixed(0)} kN).`
+            message: `Attention : Sur un refus strict, l'impact de ce marteau générera ${ruMaxKn.toFixed(0)} kN, ce qui écrasera l'acier (Limite: ${maxStructuralCapacityKn.toFixed(0)} kN). Hauteur de chute max suggérée : ${safeDropHeightM.toFixed(2)} m.`
         });
     }
 
@@ -89,8 +96,9 @@ export function calculatePilingData(data) {
     // b. Compressions Élastiques (c)
     // c2 = (Ru * L) / (A * E) - On s'assure de convertir Ru (kN) en Newtons
     const c2_mm = ((targetRu * 1000) * l_mm) / (areaMm2 * elasticModulusMPa);
+    const c1_mm = ((targetRu * 1000) * capThicknessMm) / (capAreaMm2 * capModulusMPa);
     
-    const c = c1 + c2_mm + c3;
+    const c = c1_mm + c2_mm + c3;
 
     // c. Calcul du Refus (s)
     let refusalMm = -1;
@@ -111,6 +119,7 @@ export function calculatePilingData(data) {
         refusalTargetMm: refusalMm,
         maxStructuralKn: maxStructuralCapacityKn,
         pcrKn: pcrKn,
+        c1: c1_mm,
         c2: c2_mm,
         impactRatio: impactRatio,
         totalCompression: c,
@@ -125,7 +134,8 @@ export function calculateInverseCapacity(data) {
     const { 
         measuredRefusal, efficiency, hammerWeightKg, dropHeight, 
         lengthUnderHammer, areaMm2, elasticModulusMPa, soilReboundC3, 
-        linearWeightKgPerMeter 
+        linearWeightKgPerMeter,
+        capThicknessMm, capAreaMm2, capModulusMPa
     } = data;
 
     // a. Ratio d'impact
@@ -143,17 +153,16 @@ export function calculateInverseCapacity(data) {
     
     // c. Équation Quadratique pour Ru
     // Ru = (E * eff * ratio) / (s + c/2)
-    // c = c1 + c3 + c2, où c2 = (Ru * L) / (A * E)
+    // c = c1 + c3 + c2, où c2 = (Ru * L) / (A * E) et c1 = (Ru * t) / (A_cap * E_cap)
     // Donc: a*Ru^2 + b*Ru + c_eq = 0
-    const c1 = 2.5;
     const c3 = soilReboundC3;
-    const c_const = c1 + c3;
     const l_mm = lengthUnderHammer * 304.8;
     
-    const K = l_mm / (areaMm2 * elasticModulusMPa) * 1000; // *1000 pour Ru en kN
-    
-    const a = K / 2;
-    const b = measuredRefusal + (c_const / 2);
+    const K_acier = l_mm / (areaMm2 * elasticModulusMPa);
+    const K_cap = capThicknessMm / (capAreaMm2 * capModulusMPa);
+
+    const a = (K_acier + K_cap) * 1000 / 2; // *1000 pour Ru en kN
+    const b = measuredRefusal + (c3 / 2);
     const c_eq = - (energyKnMm * effRatio * impactRatio);
     
     let targetRu = 0;
@@ -181,4 +190,15 @@ export function calculateInverseCapacity(data) {
         maxStructuralKn: maxStructuralCapacityKn,
         alerts: alerts
     };
+}
+
+export function getC3FromSPT(nValue) {
+    const N = parseFloat(String(nValue).replace(',', '.'));
+    if (isNaN(N) || N <= 0) return 2.5; 
+    if (N >= 100) return 1.5; 
+    if (N < 10) return 4.0;   
+    if (N >= 50 && N < 100) return Number((2.0 - ((N - 50) * 0.01)).toFixed(3));
+    if (N >= 30 && N < 50) return Number((2.5 - ((N - 30) * 0.025)).toFixed(3));
+    if (N >= 10 && N < 30) return Number((3.0 - ((N - 10) * 0.025)).toFixed(3));
+    return 2.5;
 }

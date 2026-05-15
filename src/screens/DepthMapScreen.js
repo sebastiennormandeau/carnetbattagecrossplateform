@@ -25,6 +25,13 @@ export default function DepthMapScreen({ navigation }) {
     const [draftAvg, setDraftAvg] = useState('');
     const [draftLatLng, setDraftLatLng] = useState(null);
 
+    const DEFAULT_REGION = {
+        latitude: 46.8138,
+        longitude: -71.2079,
+        latitudeDelta: 5.0,
+        longitudeDelta: 5.0,
+    };
+
     const mapRef = useRef(null);
 
     useEffect(() => {
@@ -210,6 +217,7 @@ export default function DepthMapScreen({ navigation }) {
                 ref={mapRef}
                 style={styles.map}
                 provider={PROVIDER_GOOGLE}
+                initialRegion={DEFAULT_REGION}
                 onLongPress={handleLongPress}
             >
                 {heatmapEnabled && heatmapPoints.length > 1 && (

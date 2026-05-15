@@ -38,16 +38,24 @@ export default function CapacityCalculator() {
             ? safeParse(store.measuredRefusal) / store.blowsPerBatch 
             : 0;
 
+        const activeHammer = hammers[store.selectedHammerIdx] || {};
+        const capThicknessMm = (activeHammer.capThicknessIn || 7) * 25.4; 
+        const capAreaMm2 = (activeHammer.capAreaSqIn || 240.25) * 645.16; 
+        const capModulusMPa = activeHammer.capModulusMPa || 900;
+
         const dataPayload = {
             measuredRefusal: refusalPerBlow,
             efficiency: safeParse(store.efficiency) || 55,
-            hammerWeightKg: hammers[store.selectedHammerIdx]?.weightKg || 1500,
+            hammerWeightKg: activeHammer.weightKg || 1500,
             dropHeight: safeParse(store.dropHeight),
             lengthUnderHammer: safeParse(store.lengthUnderHammer),
             soilReboundC3: safeParse(store.soilReboundC3) || 2.5,
             areaMm2,
             elasticModulusMPa: 200000, 
-            linearWeightKgPerMeter: gauge.weight
+            linearWeightKgPerMeter: gauge.weight,
+            capThicknessMm,
+            capAreaMm2,
+            capModulusMPa
         };
 
         return calculateInverseCapacity(dataPayload);

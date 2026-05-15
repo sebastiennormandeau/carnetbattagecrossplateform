@@ -114,7 +114,7 @@ export default function App() {
             <Stack.Screen 
               name="Formulas" 
               component={EngineeringScreen} 
-              options={{ title: 'PilingWork (Bêta)' }}
+              options={{ title: 'Formules de Battage' }}
             />
             <Stack.Screen 
               name="HammerConfig" 

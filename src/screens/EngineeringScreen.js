@@ -40,16 +40,24 @@ export default function EngineeringScreen() {
         const areaMm2 = ((Math.PI / 4) * (Math.pow(gauge.od, 2) - Math.pow(ID, 2))) * 645.16;
         const inertiaMm4 = ((Math.PI / 64) * (Math.pow(gauge.od, 4) - Math.pow(ID, 4))) * 416231.426;
 
+        const activeHammer = hammers[store.selectedHammerIdx] || {};
+        const capThicknessMm = (activeHammer.capThicknessIn || 7) * 25.4; 
+        const capAreaMm2 = (activeHammer.capAreaSqIn || 240.25) * 645.16; 
+        const capModulusMPa = activeHammer.capModulusMPa || 900;
+
         const dataPayload = {
             targetRu: parseFloat(store.targetRu) || 0,
             efficiency: parseFloat(store.efficiency) || 55,
-            hammerWeightKg: hammers[store.selectedHammerIdx]?.weightKg || 1500,
+            hammerWeightKg: activeHammer.weightKg || 1500,
             dropHeight: parseFloat(store.dropHeight) || 0,
             lengthUnderHammer: parseFloat(store.lengthUnderHammer) || 0,
             exposedLength: parseFloat(store.exposedLength) || 0,
             soilReboundC3: parseFloat(store.soilReboundC3) || 2.5,
             areaMm2, inertiaMm4, elasticModulusMPa: 200000, 
-            linearWeightKgPerMeter: gauge.weight
+            linearWeightKgPerMeter: gauge.weight,
+            capThicknessMm,
+            capAreaMm2,
+            capModulusMPa
         };
 
         const res = calculatePilingData(dataPayload);
@@ -77,23 +85,12 @@ export default function EngineeringScreen() {
                     >
                         <Text style={[styles.tabText, activeTab === 'INV_CAPACITY' && styles.tabTextActive]}>M2: Capacité</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity 
-                        style={[styles.tabButton, activeTab === 'INV_PDA' && styles.tabButtonActive]}
-                        onPress={() => setActiveTab('INV_PDA')}
-                    >
-                        <Text style={[styles.tabText, activeTab === 'INV_PDA' && styles.tabTextActive]}>M2: PDA</Text>
-                    </TouchableOpacity>
                 </View>
 
                 {/* CONTENT AREA */}
                 <View style={styles.contentArea}>
                     {activeTab === 'MAIN' && <MainCalculator />}
                     {activeTab === 'INV_CAPACITY' && <CapacityCalculator />}
-                    {activeTab === 'INV_PDA' && (
-                        <View style={styles.constructionCenter}>
-                            <Text style={styles.constructionText}>Outil PDA (En construction)</Text>
-                        </View>
-                    )}
                 </View>
 
                 {/* STICKY BOTTOM RESULT FORMAT (Zone C) */}
@@ -159,12 +156,9 @@ const styles = StyleSheet.create({
         fontWeight: 'bold'
     },
     stickyResultContainer: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
         backgroundColor: '#FFEB3B', // High contrast vivid yellow for the result
-        paddingVertical: 16,
+        paddingTop: 16,
+        paddingBottom: Platform.OS === 'android' ? 36 : 24, // Extra padding for Android nav bar
         paddingHorizontal: 20,
         borderTopWidth: 4,
         borderTopColor: '#F57F17',
