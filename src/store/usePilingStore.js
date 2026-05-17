@@ -29,7 +29,12 @@ const usePilingStore = create((set, get) => ({
     targetPDA: "",         // kN (Outil B PDA)
     isPdaMode: false,
     pdaLength: "",         // pi
-    pdaDropHeight: 1.524,  // m
+    pdaDropHeight: 5,      // ft
+
+    // Abaque de Refus
+    chartUnit: 'ft',       // 'ft' ou 'm'
+    compiledAbaques: [],   // Liste des abaques configurés
+    selectedProjectId: null, // Projet cible pour la sauvegarde documentaire
 
     // Identité Visuelle
     reportLogo: SMART_PILING_LOGO_BASE64,
@@ -37,6 +42,11 @@ const usePilingStore = create((set, get) => ({
     // Actions
     setReportLogo: (base64String) => set({ reportLogo: base64String }),
     updateField: (field, value) => set((state) => ({ ...state, [field]: value })),
+    addCurrentCalibreToAbaque: (calibreData) => set((state) => ({
+        compiledAbaques: [...state.compiledAbaques, calibreData]
+    })),
+    clearCompiledAbaques: () => set({ compiledAbaques: [] }),
+    setSelectedProjectId: (id) => set({ selectedProjectId: id }),
     resetFields: () => set({
         steelGrade: 345,
         lengthUnderHammer: "",
@@ -47,7 +57,10 @@ const usePilingStore = create((set, get) => ({
         targetPDA: "",
         isPdaMode: false,
         pdaLength: "",
-        pdaDropHeight: 1.524
+        pdaDropHeight: 5,
+        chartUnit: 'ft',
+        compiledAbaques: [],
+        selectedProjectId: null
     }),
 
     // --- Actions Asynchrones Firebase ---

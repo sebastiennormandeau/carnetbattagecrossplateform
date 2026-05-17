@@ -6,7 +6,7 @@ import { getStorage } from 'firebase/storage';
 // Your web app's Firebase configuration
 // These values mirror what is in google-services.json for your Firebase project "smart-piling"
 const firebaseConfig = {
-  apiKey: "AIzaSyBpZre29yn0ljhXumREbEE-7z04R21oIJE",
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
   authDomain: "smart-piling-app.firebaseapp.com",
   projectId: "smart-piling-app",
   storageBucket: "smart-piling-app.firebasestorage.app",

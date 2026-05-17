@@ -54,9 +54,11 @@ export function calculatePilingData(data) {
         const safeEnergyKnMm = maxEnergyKnMm / (effRatio * impactRatio);
         const safeDropHeightM = safeEnergyKnMm / (hammerWeightKn * 1000);
 
+        const safeDropHeightFt = safeDropHeightM / 0.3048;
+
         alerts.push({
             type: 'WARNING',
-            message: `Attention : Sur un refus strict, l'impact de ce marteau générera ${ruMaxKn.toFixed(0)} kN, ce qui écrasera l'acier (Limite: ${maxStructuralCapacityKn.toFixed(0)} kN). Hauteur de chute max suggérée : ${safeDropHeightM.toFixed(2)} m.`
+            message: `Attention : Sur un refus strict, l'impact de ce marteau générera ${ruMaxKn.toFixed(0)} kN, ce qui écrasera l'acier (Limite: ${maxStructuralCapacityKn.toFixed(0)} kN). Hauteur de chute max suggérée : ${safeDropHeightFt.toFixed(1)}' (${safeDropHeightM.toFixed(2)} m).`
         });
     }
 
@@ -85,9 +87,11 @@ export function calculatePilingData(data) {
             // DropHeight = EnergyKnMm / (hammerWeightKn * 1000)
             const safeDropHeightM = safeEnergyKnMm / (hammerWeightKn * 1000);
             
+            const safeDropHeightFt = safeDropHeightM / 0.3048;
+            
             alerts.push({
                 type: 'WARNING',
-                message: `Danger de flambement ! Sur un sol dur, l'impact générera jusqu'à ${ruMaxKn.toFixed(0)} kN (> ${pcrKn.toFixed(0)} kN). Hauteur de chute max suggérée : ${safeDropHeightM.toFixed(2)} m.`
+                message: `Danger de flambement ! Sur un sol dur, l'impact générera jusqu'à ${ruMaxKn.toFixed(0)} kN (> ${pcrKn.toFixed(0)} kN). Hauteur de chute max suggérée : ${safeDropHeightFt.toFixed(1)}' (${safeDropHeightM.toFixed(2)} m).`
             });
         }
     }
@@ -115,8 +119,20 @@ export function calculatePilingData(data) {
         refusalMm = 0; // Lock à zero pour éviter les mesures négatives dans l'UI
     }
 
+    // --- 6. Interception pour les chaînes d'avertissement bloquantes ---
+    // S'il y a des alertes de sécurité graves, on remplace la valeur par une chaîne
+    const hasSteelYieldDanger = alerts.some(a => a.message.includes("dépasse la limite structurelle") || a.message.includes("écrasera l'acier"));
+    const hasBucklingDanger = alerts.some(a => a.message.includes("limite de flambement") || a.message.includes("Danger de flambement"));
+
+    let finalRefusal = refusalMm;
+    if (hasSteelYieldDanger) {
+        finalRefusal = "⚠️ Déformation Acier";
+    } else if (hasBucklingDanger) {
+        finalRefusal = "⚠️ Risque Flambement";
+    }
+
     return {
-        refusalTargetMm: refusalMm,
+        refusalTargetMm: finalRefusal,
         maxStructuralKn: maxStructuralCapacityKn,
         pcrKn: pcrKn,
         c1: c1_mm,
@@ -201,4 +217,93 @@ export function getC3FromSPT(nValue) {
     if (N >= 30 && N < 50) return Number((2.5 - ((N - 30) * 0.025)).toFixed(3));
     if (N >= 10 && N < 30) return Number((3.0 - ((N - 10) * 0.025)).toFixed(3));
     return 2.5;
+}
+
+/**
+ * Calcule la hauteur de chute optimale pour un test PDA
+ * L'enfoncement cible est fixé à 2.5 mm pour mobiliser le sol
+ */
+export function calculateOptimalPdaHeight(data) {
+    const { 
+        targetRu, efficiency, hammerWeightKg, 
+        lengthUnderHammer, exposedLength, soilReboundC3, 
+        areaMm2, inertiaMm4, elasticModulusMPa, linearWeightKgPerMeter,
+        steelGrade, capThicknessMm, capAreaMm2, capModulusMPa
+    } = data;
+
+    if (!targetRu || targetRu <= 0) return null;
+
+    const OPTIMAL_SET_MM = 2.5;
+    
+    // a. Impact Ratio
+    const length_m = lengthUnderHammer * 0.3048;
+    const massPileKg = length_m * linearWeightKgPerMeter;
+    const FIXED_HELMET_WEIGHT_KG = 136;
+    const totalStruckMassKg = massPileKg + FIXED_HELMET_WEIGHT_KG;
+    
+    const impactRatio = (hammerWeightKg + (0.2 * totalStruckMassKg)) / (hammerWeightKg + totalStruckMassKg);
+    const effRatio = efficiency / 100;
+    const hammerWeightKn = (hammerWeightKg * 9.81) / 1000;
+
+    // b. Elastic compressions (c) for targetRu
+    const l_mm = lengthUnderHammer * 304.8;
+    const c3 = soilReboundC3 || 2.5;
+    
+    const K_acier = l_mm / (areaMm2 * elasticModulusMPa);
+    const K_cap = capThicknessMm / (capAreaMm2 * capModulusMPa);
+    
+    // c2 = (Ru * L) / (A * E), Ru in N (targetRu * 1000)
+    const c2_mm = ((targetRu * 1000) * l_mm) / (areaMm2 * elasticModulusMPa);
+    const c1_mm = ((targetRu * 1000) * capThicknessMm) / (capAreaMm2 * capModulusMPa);
+    const c = c1_mm + c2_mm + c3;
+
+    // c. Hiley inversion to find Optimal Energy
+    // Ru = E_avail / (s + c/2) => E_avail = Ru * (s + c/2)
+    const requiredAvailableEnergyKnMm = targetRu * (OPTIMAL_SET_MM + c / 2);
+    // E_avail = Energy * eff * n => Energy = E_avail / (eff * n)
+    const requiredEnergyKnMm = requiredAvailableEnergyKnMm / (effRatio * impactRatio);
+    
+    // Energy = W * H => H = Energy / W
+    let optimalHeightM = requiredEnergyKnMm / (hammerWeightKn * 1000);
+
+    // d. Safety Check (Maximum Safe Height)
+    const a_max = (K_acier + K_cap) * 1000 / 2; // *1000 pour N -> kN
+    const b_max = c3 / 2;
+    
+    const STEEL_YIELD_MPA = steelGrade || 345;
+    const maxStructuralCapacityKn = (areaMm2 * STEEL_YIELD_MPA) / 1000;
+    
+    const maxEnergyKnMm_steel = (a_max * Math.pow(maxStructuralCapacityKn, 2)) + (b_max * maxStructuralCapacityKn);
+    const safeHeightM_steel = maxEnergyKnMm_steel / (effRatio * impactRatio) / (hammerWeightKn * 1000);
+
+    let maxSafeHeightM = safeHeightM_steel;
+    
+    const exposedLengthMm = exposedLength * 304.8; 
+    if (exposedLengthMm > 0) {
+        const K = 1.0;
+        const effectiveLength = K * exposedLengthMm; 
+        const pcrN = (Math.pow(Math.PI, 2) * elasticModulusMPa * inertiaMm4) / Math.pow(effectiveLength, 2);
+        const pcrKn = pcrN / 1000;
+        
+        const maxEnergyKnMm_euler = (a_max * Math.pow(pcrKn, 2)) + (b_max * pcrKn);
+        const safeHeightM_euler = maxEnergyKnMm_euler / (effRatio * impactRatio) / (hammerWeightKn * 1000);
+        
+        maxSafeHeightM = Math.min(maxSafeHeightM, safeHeightM_euler);
+    }
+    
+    let isCappedBySafety = false;
+    let finalHeightM = optimalHeightM;
+    // We cap it down, if it exceeds the max safe height
+    if (optimalHeightM > maxSafeHeightM) {
+        finalHeightM = maxSafeHeightM;
+        isCappedBySafety = true;
+    }
+
+    return {
+        optimalHeightM: optimalHeightM,
+        optimalHeightFt: optimalHeightM / 0.3048,
+        finalHeightM: finalHeightM,
+        finalHeightFt: finalHeightM / 0.3048,
+        isCappedBySafety: isCappedBySafety
+    };
 }

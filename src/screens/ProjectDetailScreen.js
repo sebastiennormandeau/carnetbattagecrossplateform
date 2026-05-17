@@ -128,6 +128,21 @@ export default function ProjectDetailScreen({ route, navigation }) {
     };
   }, [projectId]);
 
+  // Sync average depth back to project document for the Map
+  useEffect(() => {
+    if (!project || !piles) return;
+    const validDepthPiles = piles.filter(p => p.depthFt > 0);
+    const avgD = validDepthPiles.length > 0 
+      ? validDepthPiles.reduce((acc, p) => acc + p.depthFt, 0) / validDepthPiles.length 
+      : 0;
+    const avgDRounded = Math.round(avgD * 10) / 10;
+    
+    if (project.avgDepthFt !== avgDRounded) {
+      updateDoc(doc(db, 'projects', projectId), { avgDepthFt: avgDRounded })
+        .catch(e => console.log('Error syncing avgDepthFt:', e));
+    }
+  }, [piles, project, projectId]);
+
   if (loading) {
     return (
       <View style={[styles.container, styles.centered]}>
