@@ -1,6 +1,7 @@
 import { create } from 'zustand';
-import { collection, getDocs, addDoc, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { getTenantQuery, addTenantDoc } from '../utils/firestore-tenant';
 import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
 
 const usePilingStore = create((set, get) => ({
@@ -66,7 +67,7 @@ const usePilingStore = create((set, get) => ({
     // --- Actions Asynchrones Firebase ---
     fetchHammers: async () => {
         try {
-            const snapshot = await getDocs(collection(db, 'hammers'));
+            const snapshot = await getDocs(getTenantQuery('hammers'));
             const hammersData = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()
@@ -80,7 +81,7 @@ const usePilingStore = create((set, get) => ({
 
     addHammer: async (newHammer) => {
         try {
-            const docRef = await addDoc(collection(db, 'hammers'), newHammer);
+            const docRef = await addTenantDoc(collection(db, 'hammers'), newHammer);
             const hammerWithId = { id: docRef.id, ...newHammer };
             set((state) => ({
                 availableHammers: [...state.availableHammers, hammerWithId]

@@ -13,10 +13,15 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { theme } from '../theme/Theme';
 import { Ionicons } from '@expo/vector-icons';
 import usePilingStore from '../store/usePilingStore';
+import useProjectStore from '../store/useProjectStore';
 import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
+import AssignProjectModal from '../components/AssignProjectModal';
 
 export default function ProjectDetailScreen({ route, navigation }) {
   const { projectId, projectName } = route.params;
+
+  const userRole = useProjectStore(state => state.userRole);
+  const [isAssignModalVisible, setIsAssignModalVisible] = useState(false);
 
   const [project, setProject] = useState(null);
   const [piles, setPiles] = useState([]);
@@ -666,6 +671,15 @@ export default function ProjectDetailScreen({ route, navigation }) {
                <Text style={{fontSize: 12, fontWeight: 'bold'}}>GPS</Text>
             </TouchableOpacity>
          </View>
+
+         {userRole === 'admin' && (
+             <TouchableOpacity 
+                 style={{marginTop: 15, backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 15, borderRadius: 6, alignSelf: 'flex-start'}}
+                 onPress={() => setIsAssignModalVisible(true)}
+             >
+                 <Text style={{color: 'white', fontWeight: 'bold', fontSize: 14}}>Modifier l'assignation globale</Text>
+             </TouchableOpacity>
+         )}
       </View>
 
       {/* Summary Section */}
@@ -865,6 +879,12 @@ export default function ProjectDetailScreen({ route, navigation }) {
         <Text style={styles.deleteProjectBtnText}>Supprimer le projet</Text>
       </TouchableOpacity>
 
+      {/* Modal d'assignation globale (pour admins) */}
+      <AssignProjectModal 
+          visible={isAssignModalVisible} 
+          onClose={() => setIsAssignModalVisible(false)} 
+          projectId={projectId} 
+      />
     </ScrollView>
   );
 }

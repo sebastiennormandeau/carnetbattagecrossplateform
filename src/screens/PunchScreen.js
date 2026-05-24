@@ -2,8 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Modal, FlatList } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
+import { getTenantQuery, addTenantDoc, requireTenant } from '../utils/firestore-tenant';
 import { theme } from '../theme/Theme';
 import { usePunchLocation } from '../hooks/usePunchLocation';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,11 +30,11 @@ export default function PunchScreen({ navigation }) {
         
         const loadProjects = async () => {
             try {
-                const adminSnap = await getDoc(doc(db, 'admins', user.uid));
-                const isAdmin = adminSnap.exists() && adminSnap.data().enabled === true;
+                const tokenResult = await user.getIdTokenResult();
+                const isAdmin = tokenResult.claims.role === 'admin';
 
                 if (isAdmin) {
-                    unsubscribeProjects = onSnapshot(collection(db, 'projects'), (snap) => {
+                    unsubscribeProjects = onSnapshot(getTenantQuery('projects'), (snap) => {
                         const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
                         setProjects(data);
                         if (data.length > 0) {
@@ -41,8 +42,8 @@ export default function PunchScreen({ navigation }) {
                         }
                     });
                 } else {
-                    const qOwner = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
-                    const qAllowed = query(collection(db, 'projects'), where('readUsers', 'array-contains', user.uid));
+                    const qOwner = query(getTenantQuery('projects'), where('ownerUid', '==', user.uid));
+                    const qAllowed = query(getTenantQuery('projects'), where('readUsers', 'array-contains', user.uid));
                     
                     let listO = [];
                     let listA = [];
@@ -69,7 +70,7 @@ export default function PunchScreen({ navigation }) {
         loadProjects();
 
         // Check for active shift & fetch history
-        const qShift = query(collection(db, 'shifts'), where('userId', '==', user.uid));
+        const qShift = query(getTenantQuery('shifts'), where('userId', '==', user.uid));
         const unsubShift = onSnapshot(qShift, (snap) => {
             const allShifts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
@@ -90,14 +91,22 @@ export default function PunchScreen({ navigation }) {
             setLoading(false);
         });
 
+        let unsubPunchSettings = () => {};
         // Fetch Punch settings
-        const unsubPunchSettings = onSnapshot(doc(db, 'settings', 'punch'), docSnap => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                setDeductLunch(!!data.deductLunch);
-                setLunchMinutes(data.lunchMinutes ? String(data.lunchMinutes) : '30');
-            }
-        });
+        try {
+            const tenantId = requireTenant();
+            unsubPunchSettings = onSnapshot(doc(db, 'settings', `punch_${tenantId}`), docSnap => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    setDeductLunch(!!data.deductLunch);
+                    setLunchMinutes(data.lunchMinutes ? String(data.lunchMinutes) : '30');
+                }
+            }, (error) => {
+                console.error("ERREUR onSnapshot (settings/punch) in PunchScreen:", error);
+            });
+        } catch (e) {
+            console.error("Failed to load punch settings:", e);
+        }
 
         return () => {
             unsubscribeProjects();
@@ -125,7 +134,7 @@ export default function PunchScreen({ navigation }) {
         if (!currentLocation || !selectedProjectId) return;
         setProcessing(true);
         try {
-            await addDoc(collection(db, 'shifts'), {
+            await addTenantDoc(collection(db, 'shifts'), {
                 userId: auth.currentUser.uid,
                 userEmail: auth.currentUser.email,
                 projectId: selectedProjectId,

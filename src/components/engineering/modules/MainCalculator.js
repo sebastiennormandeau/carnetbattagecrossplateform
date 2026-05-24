@@ -7,6 +7,7 @@ import { calculatePilingData, getC3FromSPT, calculateOptimalPdaHeight } from '..
 import { generatePilingReport, generateRefusalChartPdf } from '../../../utils/pdfGenerator';
 import { collection, onSnapshot, addDoc } from 'firebase/firestore';
 import { auth, db, storage } from '../../../config/firebase';
+import { getTenantQuery } from '../../../utils/firestore-tenant';
 import { ref, uploadBytes } from 'firebase/storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -37,7 +38,7 @@ export default function MainCalculator() {
     const [projects, setProjects] = useState([]);
 
     useEffect(() => {
-        const unsubscribe = onSnapshot(collection(db, 'projects'), (snapshot) => {
+        const unsubscribe = onSnapshot(getTenantQuery('projects'), (snapshot) => {
             const projList = snapshot.docs.map(doc => ({
                 id: doc.id,
                 ...doc.data()

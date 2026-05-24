@@ -8,15 +8,17 @@ import * as FileSystem from 'expo-file-system/legacy';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { db, auth } from '../config/firebase';
+import { getTenantQuery, requireTenant, setTenantDoc } from '../utils/firestore-tenant';
 import { theme } from '../theme/Theme';
 import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
 import usePilingStore from '../store/usePilingStore';
 
+const TEAM_COLORS = ['#34495e', '#e67e22', '#27ae60', '#c0392b', '#8e44ad', '#2980b9', '#f39c12', '#16a085'];
+
 export default function AdminScreen({ navigation }) {
     const [users, setUsers] = useState([]);
-    const [adminsMap, setAdminsMap] = useState({});
     const [projects, setProjects] = useState([]);
-    const [selectedTab, setSelectedTab] = useState('USERS'); // USERS, PROJECTS or SHIFTS
+    const [selectedTab, setSelectedTab] = useState('USERS'); // USERS, PROJECTS, SHIFTS, TEAMS, SETTINGS
     const [selectedProject, setSelectedProject] = useState(null);
     const [shifts, setShifts] = useState([]);
     const [deductLunch, setDeductLunch] = useState(false);
@@ -43,56 +45,55 @@ export default function AdminScreen({ navigation }) {
 
     useEffect(() => {
         // Fetch all users
-        const unsubUsers = onSnapshot(collection(db, 'users'), snapshot => {
+        const unsubUsers = onSnapshot(getTenantQuery('users'), snapshot => {
             const data = [];
             snapshot.forEach(docSnap => data.push({ id: docSnap.id, ...docSnap.data() }));
             setUsers(data);
-        });
-
-        // Fetch admins
-        const unsubAdmins = onSnapshot(collection(db, 'admins'), snapshot => {
-            const map = {};
-            snapshot.forEach(docSnap => {
-                map[docSnap.id] = docSnap.data().enabled;
-            });
-            setAdminsMap(map);
-        });
+        }, error => console.error("Admin Users Error:", error));
 
         // Fetch projects
-        const unsubProjects = onSnapshot(collection(db, 'projects'), snapshot => {
+        const unsubProjects = onSnapshot(getTenantQuery('projects'), snapshot => {
             const data = [];
             snapshot.forEach(docSnap => data.push({ id: docSnap.id, ...docSnap.data() }));
             setProjects(data);
-        });
+        }, error => console.error("Admin Projects Error:", error));
 
         // Fetch shifts
-        const unsubShifts = onSnapshot(collection(db, 'shifts'), snapshot => {
+        const unsubShifts = onSnapshot(getTenantQuery('shifts'), snapshot => {
             const data = [];
             snapshot.forEach(docSnap => data.push({ id: docSnap.id, ...docSnap.data() }));
             setShifts(data);
-        });
+        }, error => console.error("Admin Shifts Error:", error));
 
         // Fetch Punch settings
-        const unsubPunchSettings = onSnapshot(doc(db, 'settings', 'punch'), docSnap => {
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-                setDeductLunch(!!data.deductLunch);
-                setLunchMinutes(data.lunchMinutes ? String(data.lunchMinutes) : '30');
-            }
-        });
+        let unsubPunchSettings = () => {};
+        try {
+            const tenantId = requireTenant();
+            unsubPunchSettings = onSnapshot(doc(db, 'settings', `punch_${tenantId}`), docSnap => {
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    setDeductLunch(!!data.deductLunch);
+                    setLunchMinutes(data.lunchMinutes ? String(data.lunchMinutes) : '30');
+                }
+            }, (error) => {
+                console.error("ERREUR onSnapshot (settings/punch) in AdminScreen:", error);
+            });
+        } catch (e) {
+            console.error("Erreur Settings Admin:", e);
+        }
 
-        return () => { unsubUsers(); unsubAdmins(); unsubProjects(); unsubShifts(); unsubPunchSettings(); };
+        return () => { unsubUsers(); unsubProjects(); unsubShifts(); unsubPunchSettings(); };
     }, []);
 
-    const toggleAdmin = async (userId, currentStatus) => {
+    const toggleAdmin = async (userId, currentRole) => {
         // Prevent removing oneself
-        if (userId === auth.currentUser?.uid && currentStatus) {
+        if (userId === auth.currentUser?.uid && currentRole === 'admin') {
             Alert.alert("Attention", "Vous ne pouvez pas retirer vos propres droits d'administrateur ici.");
             return;
         }
 
         try {
-            await setDoc(doc(db, 'admins', userId), { enabled: !currentStatus });
+            await setDoc(doc(db, 'users', userId), { role: currentRole === 'admin' ? 'user' : 'admin' }, { merge: true });
         } catch (e) {
             Alert.alert("Erreur", "Impossible de modifier les droits.");
         }
@@ -133,7 +134,8 @@ export default function AdminScreen({ navigation }) {
 
     const handleToggleDeductLunch = async (val) => {
         try {
-            await setDoc(doc(db, 'settings', 'punch'), { deductLunch: val }, { merge: true });
+            const tenantId = requireTenant();
+            await setTenantDoc(doc(db, 'settings', `punch_${tenantId}`), { deductLunch: val }, { merge: true });
         } catch (e) {
             Alert.alert("Erreur", "Impossible de sauvegarder ce paramètre.");
         }
@@ -146,9 +148,10 @@ export default function AdminScreen({ navigation }) {
 
     const handleBlurLunchMinutes = async () => {
         try {
-            await setDoc(doc(db, 'settings', 'punch'), { lunchMinutes: lunchMinutes }, { merge: true });
+            const tenantId = requireTenant();
+            await setTenantDoc(doc(db, 'settings', `punch_${tenantId}`), { lunchMinutes: parseInt(lunchMinutes, 10) || 0 }, { merge: true });
         } catch (e) {
-            console.error(e);
+            Alert.alert("Erreur", "Impossible de sauvegarder les minutes.");
         }
     };
 
@@ -328,8 +331,8 @@ export default function AdminScreen({ navigation }) {
                                 <View style={styles.switchGroup}>
                                     <Text style={styles.switchLabel}>Admin</Text>
                                     <Switch 
-                                        value={!!adminsMap[item.id]} 
-                                        onValueChange={() => toggleAdmin(item.id, !!adminsMap[item.id])}
+                                        value={item.role === 'admin'} 
+                                        onValueChange={() => toggleAdmin(item.id, item.role)}
                                     />
                                 </View>
                                 <View style={styles.switchGroup}>
@@ -369,6 +372,13 @@ export default function AdminScreen({ navigation }) {
                                     <Switch 
                                         value={item.tools ? item.tools.punch !== false : true} 
                                         onValueChange={() => toggleTool(item.id, 'punch', item.tools, true)}
+                                    />
+                                </View>
+                                <View style={styles.switchGroup}>
+                                    <Text style={styles.switchLabel}>Calendrier</Text>
+                                    <Switch 
+                                        value={item.tools ? item.tools.calendrier !== false : true} 
+                                        onValueChange={() => toggleTool(item.id, 'calendrier', item.tools, true)}
                                     />
                                 </View>
                                 <View style={styles.switchGroup}>
@@ -422,7 +432,7 @@ export default function AdminScreen({ navigation }) {
                             const isWrite = (liveProj.writeUsers || []).includes(item.id);
                             
                             const isOwner = liveProj.ownerUid === item.id;
-                            const isAdminUser = !!adminsMap[item.id];
+                            const isAdminUser = item.role === 'admin';
                             
                             let currentLevel = 'NONE';
                             if (isWrite) currentLevel = 'WRITE';
@@ -596,6 +606,7 @@ export default function AdminScreen({ navigation }) {
                 </>
             )}
 
+
             {selectedTab === 'SETTINGS' && (
                 <ScrollView contentContainerStyle={{ padding: 20 }}>
                     <View style={styles.userCard}>
@@ -646,7 +657,7 @@ const styles = StyleSheet.create({
     backBtnProj: { marginBottom: 15, padding: 10, backgroundColor: '#333', borderRadius: 8, alignSelf: 'flex-start' },
     projectTitleBig: { fontSize: 22, fontWeight: 'bold', color: 'white', marginBottom: 5 },
     accessRow: { backgroundColor: theme.colors.surface, padding: 15, borderRadius: 10, marginBottom: 10 },
-    toolsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderColor: theme.colors.border },
+    toolsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 15, justifyContent: 'space-between', marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderColor: theme.colors.border },
     radioGroup: { flexDirection: 'row', backgroundColor: '#111', borderRadius: 8, padding: 4 },
     radioBtn: { flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 6 },
     radioBtnActive: { backgroundColor: '#333' },
@@ -655,5 +666,9 @@ const styles = StyleSheet.create({
     dateBtn: { backgroundColor: '#333', padding: 10, borderRadius: 6, marginTop: 4, alignItems: 'center' },
     dateBtnText: { color: 'white', fontWeight: 'bold' },
     exportBtn: { backgroundColor: theme.colors.primary, padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 20 },
-    exportBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16 }
+    exportBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
+    textInput: { backgroundColor: '#1e1e1e', color: 'white', padding: 12, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
+    colorPalette: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10 },
+    colorSwatch: { width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: 'transparent' },
+    colorSwatchSelected: { borderColor: 'white' }
 });

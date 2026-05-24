@@ -3,8 +3,9 @@ import { View, StyleSheet, Text, Switch, TouchableOpacity, Modal, TextInput, Ale
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MapView, { Marker, Heatmap, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
+import { getTenantQuery, addTenantDoc } from '../utils/firestore-tenant';
 import { theme } from '../theme/Theme';
 
 export default function DepthMapScreen({ navigation }) {
@@ -35,7 +36,7 @@ export default function DepthMapScreen({ navigation }) {
     const mapRef = useRef(null);
 
     useEffect(() => {
-        const unsubProjects = onSnapshot(collection(db, 'projects'), snapshot => {
+        const unsubProjects = onSnapshot(getTenantQuery('projects'), snapshot => {
             const data = [];
             snapshot.forEach(doc => {
                 const d = doc.data();
@@ -54,7 +55,7 @@ export default function DepthMapScreen({ navigation }) {
             setProjects(data);
         });
 
-        const unsubHistory = onSnapshot(collection(db, 'map_points'), snapshot => {
+        const unsubHistory = onSnapshot(getTenantQuery('map_points'), snapshot => {
             const data = [];
             snapshot.forEach(doc => {
                 const d = doc.data();
@@ -80,8 +81,8 @@ export default function DepthMapScreen({ navigation }) {
         const checkAdmin = async () => {
             if (auth.currentUser) {
                 try {
-                    const snap = await getDoc(doc(db, 'admins', auth.currentUser.uid));
-                    if (snap.exists() && snap.data().enabled === true) {
+                    const tokenResult = await auth.currentUser.getIdTokenResult();
+                    if (tokenResult.claims.role === 'admin') {
                         setIsAdmin(true);
                     }
                 } catch (e) {
@@ -141,7 +142,7 @@ export default function DepthMapScreen({ navigation }) {
     const savePoint = async () => {
         if (!draftLatLng || !draftName || !draftAvg) return;
         try {
-            await addDoc(collection(db, 'map_points'), {
+            await addTenantDoc(collection(db, 'map_points'), {
                 name: draftName.trim(),
                 addressLine: draftAddr.trim(),
                 latitude: draftLatLng.latitude,

@@ -2,98 +2,132 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
+    // Vérification de base : utilisateur authentifié avec un tenant actif (companyId)
+    function hasTenant() {
+      return request.auth != null && request.auth.token.companyId != null;
+    }
+
+    // L'utilisateur est admin de son tenant
     function isAdmin() {
-      return request.auth != null &&
-             exists(/databases/$(database)/documents/admins/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.enabled == true;
+      return request.auth != null && request.auth.token.role == 'admin';
+    }
+
+    // Le document appartient au même tenant que l'utilisateur
+    function isSameTenant(docData) {
+      return docData.companyId == request.auth.token.companyId;
+    }
+
+    // L'utilisateur est-il assigné à ce projet spécifique
+    function isAssignedToProject(projectId) {
+      return request.auth != null && 
+             request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.assignedUsers;
+    }
+
+    // Vérifie que le projet parent appartient bien à la bonne compagnie (pour les sous-collections)
+    function parentProjectIsSameTenant(projectId) {
+      return get(/databases/$(database)/documents/projects/$(projectId)).data.companyId == request.auth.token.companyId;
     }
 
     match /users/{userId} {
-      allow read: if request.auth != null; // All users must be able to read user tools settings if needed
-      allow write: if isAdmin() || request.auth.uid == userId;
+      // Un utilisateur peut TOUJOURS lire ses propres infos, ou celles des autres de son entreprise
+      allow read: if request.auth.uid == userId || (hasTenant() && isSameTenant(resource.data)); 
+      // Un utilisateur peut se modifier lui-même, ou un admin de SON entreprise peut le modifier
+      // Dans les deux cas, le nouveau document DOIT rester dans la même entreprise
+      allow write: if request.auth.uid == userId || (hasTenant() && 
+                   isSameTenant(request.resource.data) &&
+                   (
+                     (resource == null) || 
+                     isSameTenant(resource.data)
+                   ) &&
+                   isAdmin());
     }
 
-    match /admins/{userId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin(); 
-    }
+    // Collection obsolète ?
+
 
     match /projects/{projectId} {
-      allow read: if isAdmin() || 
+      allow read: if hasTenant() && isSameTenant(resource.data) && (
+                      isAdmin() || 
                       resource.data.ownerUid == request.auth.uid ||
-                      (resource.data.readUsers != null && request.auth.uid in resource.data.readUsers);
+                      (request.auth.uid in resource.data.assignedUsers) ||
+                      (request.auth.uid in resource.data.readUsers)
+                  );
                       
-      allow write: if isAdmin() || 
-                       resource.data.ownerUid == request.auth.uid ||
-                       (resource.data.writeUsers != null && request.auth.uid in resource.data.writeUsers);
+      allow update: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && (
+                        isAdmin() || 
+                        resource.data.ownerUid == request.auth.uid ||
+                        (request.auth.uid in resource.data.assignedUsers) ||
+                        (request.auth.uid in resource.data.writeUsers)
+                    );
       
-      allow create: if request.auth != null;
+      allow create: if hasTenant() && isSameTenant(request.resource.data);
+      allow delete: if hasTenant() && isSameTenant(resource.data) && isAdmin();
 
+      // SOUS-COLLECTIONS de Projects
+      // On vérifie que le projet parent appartient à l'entreprise
       match /piles/{pileId} {
-        allow read: if isAdmin() || 
-                        get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                        (get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers);
-        allow write: if isAdmin() || 
-                         get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                         (get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
       }
       match /photos/{photoId} {
-        allow read: if isAdmin() || 
-                        get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                        (get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers);
-        allow write: if isAdmin() || 
-                         get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                         (get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
       }
       match /notes/{noteId} {
-        allow read: if isAdmin() || 
-                        get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                        (get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers);
-        allow write: if isAdmin() || 
-                         get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                         (get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
       }
       match /docs/{docId} {
-        allow read: if isAdmin() || 
-                        get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                        (get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers);
-        allow write: if isAdmin() || 
-                         get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                         (get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
       }
       match /hotspots/{hotspotId} {
-        allow read: if isAdmin() || 
-                        get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                        (get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.readUsers);
-        allow write: if isAdmin() || 
-                         get(/databases/$(database)/documents/projects/$(projectId)).data.ownerUid == request.auth.uid ||
-                         (get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers != null && request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.writeUsers);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
       }
+    }
+
+    match /calendar_events/{eventId} {
+      allow read: if hasTenant() && isSameTenant(resource.data) && (
+                     isAdmin() || (request.auth.uid in resource.data.assignedUsers)
+                  );
+      allow create: if hasTenant() && isSameTenant(request.resource.data) && isAdmin();
+      allow update: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && isAdmin();
+      allow delete: if hasTenant() && isSameTenant(resource.data) && isAdmin();
     }
 
     match /map_points/{pointId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin();
-    }
-
-    match /settings/{docId} {
-      allow read: if request.auth != null;
-      allow write: if isAdmin();
+      allow read: if hasTenant() && isSameTenant(resource.data);
+      allow create: if hasTenant() && isSameTenant(request.resource.data);
+      allow update, delete: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && isAdmin();
     }
 
     match /shifts/{shiftId} {
-      allow read: if isAdmin() || (request.auth != null && resource.data.userId == request.auth.uid);
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow read: if hasTenant() && isSameTenant(resource.data) && (isAdmin() || resource.data.userId == request.auth.uid);
+      allow create: if hasTenant() && isSameTenant(request.resource.data) && request.resource.data.userId == request.auth.uid;
+      allow update: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && resource.data.userId == request.auth.uid;
+      allow delete: if hasTenant() && isSameTenant(resource.data) && isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if hasTenant() && (resource == null || resource.data.companyId == request.auth.token.companyId);
+      allow create: if hasTenant() && request.resource.data.companyId == request.auth.token.companyId && isAdmin();
+      allow update, delete: if hasTenant() && resource.data.companyId == request.auth.token.companyId && request.resource.data.companyId == request.auth.token.companyId && isAdmin();
     }
 
     match /hammers/{hammerId} {
-      allow read, delete: if request.auth != null;
-      allow create, update: if request.auth != null && 
+      allow read: if hasTenant() && isSameTenant(resource.data);
+      allow create: if hasTenant() && isSameTenant(request.resource.data) && 
                             request.resource.data.keys().hasAll(['capThicknessIn', 'capAreaSqIn', 'capModulusMPa']) &&
                             request.resource.data.capThicknessIn is number &&
                             request.resource.data.capAreaSqIn is number &&
                             request.resource.data.capModulusMPa is number;
+      allow update: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && 
+                            request.resource.data.keys().hasAll(['capThicknessIn', 'capAreaSqIn', 'capModulusMPa']) &&
+                            request.resource.data.capThicknessIn is number &&
+                            request.resource.data.capAreaSqIn is number &&
+                            request.resource.data.capModulusMPa is number;
+      allow delete: if hasTenant() && isSameTenant(resource.data);
     }
   }
 }

@@ -1,7 +1,8 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
+import { initializeAuth, getReactNativePersistence } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
+import ReactNativeAsyncStorage from '@react-native-async-storage/async-storage';
 
 // Your web app's Firebase configuration
 // These values mirror what is in google-services.json for your Firebase project "smart-piling"
@@ -20,7 +21,9 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase services
 const db = getFirestore(app);
-const auth = getAuth(app);
+const auth = initializeAuth(app, {
+  persistence: getReactNativePersistence(ReactNativeAsyncStorage)
+});
 const storage = getStorage(app);
 
 export { db, auth, storage, app };

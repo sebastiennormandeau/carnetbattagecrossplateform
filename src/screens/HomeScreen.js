@@ -6,32 +6,33 @@ import { theme } from '../theme/Theme';
 
 export default function HomeScreen({ navigation }) {
   const [isAdmin, setIsAdmin] = useState(false);
-  const [tools, setTools] = useState({ carnet: true, carte: true, inspection: true, punch: true, formules: false });
+  const [tools, setTools] = useState({ carnet: true, carte: true, inspection: true, punch: true, formules: false, calendrier: true });
 
   useEffect(() => {
     const checkPrivileges = async () => {
       if (auth.currentUser) {
         try {
-          // Check Admin
-          const adminSnap = await getDoc(doc(db, 'admins', auth.currentUser.uid));
-          if (adminSnap.exists() && adminSnap.data().enabled === true) {
+          // Check Admin via Custom Claims
+          const tokenResult = await auth.currentUser.getIdTokenResult();
+          console.log("Claims HomeScreen:", tokenResult.claims);
+          if (tokenResult.claims.role === 'admin') {
             setIsAdmin(true);
           }
           
           // Check Tools Permissions
           const userSnap = await getDoc(doc(db, 'users', auth.currentUser.uid));
           if (userSnap.exists() && userSnap.data().tools) {
-             // Fusionne les permissions pour que celles non-définies restent 'true'
-             setTools({
-                 carnet: userSnap.data().tools.carnet !== false,
-                 carte: userSnap.data().tools.carte !== false,
-                 inspection: userSnap.data().tools.inspection !== false,
-                 punch: userSnap.data().tools.punch !== false,
-                 formules: userSnap.data().tools.formules === true // explicitly default to false
-             });
+              setTools({
+                  carnet: userSnap.data().tools.carnet !== false,
+                  carte: userSnap.data().tools.carte !== false,
+                  inspection: userSnap.data().tools.inspection !== false,
+                  punch: userSnap.data().tools.punch !== false,
+                  formules: userSnap.data().tools.formules === true, // explicitly default to false
+                  calendrier: userSnap.data().tools.calendrier !== false
+              });
           }
         } catch (e) {
-          console.log("Erreur privileges:", e);
+          console.error("ERREUR PRIVILEGES (HomeScreen):", e);
         }
       }
     };
@@ -53,6 +54,17 @@ export default function HomeScreen({ navigation }) {
       </View>
 
       <ScrollView style={styles.menuContainer} showsVerticalScrollIndicator={false}>
+        {tools.calendrier && (
+          <TouchableOpacity 
+            style={[styles.card, { borderColor: '#3498db' }]}
+            onPress={() => navigation.navigate('Calendar')}
+          >
+            <Text style={[styles.cardTitle, { color: '#3498db' }]}>Calendrier 📅</Text>
+            <Text style={styles.cardDesc}>Planification et assignation des chantiers</Text>
+          </TouchableOpacity>
+        )}
+
+
         {tools.carnet && (
           <TouchableOpacity 
             style={styles.card}
@@ -112,6 +124,20 @@ export default function HomeScreen({ navigation }) {
              <Text style={styles.cardDesc}>Gérer les accès utilisateurs et les délégations de projets</Text>
            </TouchableOpacity>
         )}
+
+        <TouchableOpacity 
+          style={styles.legalButton}
+          onPress={() => navigation.navigate('Legal')}
+        >
+          <Text style={styles.legalText}>Mentions Légales & Confidentialité</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.logoutButton}
+          onPress={() => auth.signOut()}
+        >
+          <Text style={styles.logoutText}>Déconnexion</Text>
+        </TouchableOpacity>
       </ScrollView>
 
     </View>
@@ -163,5 +189,27 @@ const styles = StyleSheet.create({
   cardDesc: {
     fontSize: 14,
     color: theme.colors.textMuted,
-  }
+  },
+  legalButton: {
+    marginTop: 15,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  legalText: {
+    fontSize: 14,
+    color: theme.colors.textMuted,
+    textDecorationLine: 'underline',
+  },
+  logoutButton: {
+    marginTop: 20,
+    alignItems: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#e74c3c',
+    borderRadius: 8,
+  },
+  logoutText: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: 'bold',
+  },
 });

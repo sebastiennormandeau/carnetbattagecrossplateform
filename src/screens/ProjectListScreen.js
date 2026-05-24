@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { db, auth } from '../config/firebase';
 import { collection, query, where, onSnapshot, getDoc, doc } from 'firebase/firestore';
+import { getTenantQuery } from '../utils/firestore-tenant';
 import { theme } from '../theme/Theme';
 
 export default function ProjectListScreen({ navigation }) {
@@ -16,18 +17,18 @@ export default function ProjectListScreen({ navigation }) {
 
     const loadProjects = async () => {
       try {
-        const adminSnap = await getDoc(doc(db, 'admins', user.uid));
-        const isAdmin = adminSnap.exists() && adminSnap.data().enabled === true;
+        const tokenResult = await user.getIdTokenResult();
+        const isAdmin = tokenResult.claims.role === 'admin';
 
         if (isAdmin) {
-          unsubscribeProjects = onSnapshot(collection(db, 'projects'), (querySnapshot) => {
+          unsubscribeProjects = onSnapshot(getTenantQuery('projects'), (querySnapshot) => {
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setProjects(data);
             setLoading(false);
           });
         } else {
-          const qOwner = query(collection(db, 'projects'), where('ownerUid', '==', user.uid));
-          const qAllowed = query(collection(db, 'projects'), where('readUsers', 'array-contains', user.uid));
+          const qOwner = query(getTenantQuery('projects'), where('ownerUid', '==', user.uid));
+          const qAllowed = query(getTenantQuery('projects'), where('readUsers', 'array-contains', user.uid));
           
           let listOwner = [];
           let listAllowed = [];
@@ -43,10 +44,14 @@ export default function ProjectListScreen({ navigation }) {
           const un1 = onSnapshot(qOwner, snap => {
              listOwner = snap.docs.map(d => ({ id: d.id, ...d.data() }));
              mergeLists();
+          }, (error) => {
+             console.error("ERREUR onSnapshot qOwner (Projects):", error);
           });
           const un2 = onSnapshot(qAllowed, snap => {
              listAllowed = snap.docs.map(d => ({ id: d.id, ...d.data() }));
              mergeLists();
+          }, (error) => {
+             console.error("ERREUR onSnapshot qAllowed (Projects):", error);
           });
 
           unsubscribeProjects = () => { un1(); un2(); };
