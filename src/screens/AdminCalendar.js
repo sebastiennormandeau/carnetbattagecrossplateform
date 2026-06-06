@@ -24,7 +24,7 @@ LocaleConfig.locales['fr'] = {
 };
 LocaleConfig.defaultLocale = 'fr';
 
-const AdminCalendar = () => {
+const AdminCalendar = ({ route }) => {
     const { calendarEvents, projects, deleteProject } = useProjectStore();
     const bottomSheetRef = useRef(null);
     const navigation = useNavigation();
@@ -57,6 +57,12 @@ const AdminCalendar = () => {
         };
         fetchUsers();
     }, []);
+
+    useEffect(() => {
+        if (route?.params?.assignProjectId) {
+            setProjectToAssign(route.params.assignProjectId);
+        }
+    }, [route?.params?.assignProjectId]);
 
     // Points d'ancrage du bottom sheet
     const snapPoints = useMemo(() => ['15%', '50%'], []);

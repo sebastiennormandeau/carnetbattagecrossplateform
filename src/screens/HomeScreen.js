@@ -64,6 +64,14 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         )}
 
+        <TouchableOpacity 
+          style={[styles.card, { borderColor: '#f1c40f' }]}
+          onPress={() => navigation.navigate('ProjectsCRM')}
+        >
+          <Text style={[styles.cardTitle, { color: '#f1c40f' }]}>Projets CRM 📊</Text>
+          <Text style={styles.cardDesc}>Gestion Kanban du statut des projets</Text>
+        </TouchableOpacity>
+
 
         {tools.carnet && (
           <TouchableOpacity 
@@ -95,6 +103,8 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         )}
 
+
+
         {tools.inspection && (
           <TouchableOpacity 
             style={styles.card}
@@ -116,13 +126,31 @@ export default function HomeScreen({ navigation }) {
         )}
 
         {isAdmin && (
-           <TouchableOpacity 
-             style={[styles.card, { borderColor: theme.colors.primary }]}
-             onPress={() => navigation.navigate('Admin')}
-           >
-             <Text style={styles.cardTitle}>Autorisations (Admin)</Text>
-             <Text style={styles.cardDesc}>Gérer les accès utilisateurs et les délégations de projets</Text>
-           </TouchableOpacity>
+          <>
+             <TouchableOpacity 
+               style={[styles.card, { borderColor: theme.colors.primary }]}
+               onPress={() => navigation.navigate('Admin')}
+             >
+               <Text style={styles.cardTitle}>Autorisations (Admin)</Text>
+               <Text style={styles.cardDesc}>Gérer les accès utilisateurs et les délégations de projets</Text>
+             </TouchableOpacity>
+
+             <TouchableOpacity 
+               style={[styles.card, { borderColor: '#f39c12', marginTop: 15 }]}
+               onPress={() => navigation.navigate('AdminUserManagement')}
+             >
+               <Text style={[styles.cardTitle, { color: '#f39c12' }]}>Gestion des Employés 👥</Text>
+               <Text style={styles.cardDesc}>Gérer les profils et paramètres de paie (CCQ) des employés</Text>
+             </TouchableOpacity>
+
+             <TouchableOpacity 
+               style={[styles.card, { borderColor: '#27ae60', marginTop: 15 }]}
+               onPress={() => navigation.navigate('AdminPayroll')}
+             >
+               <Text style={[styles.cardTitle, { color: '#27ae60' }]}>Paie & Export CSV (Admin) 📈</Text>
+               <Text style={styles.cardDesc}>Visualiser les heures soumises et exporter pour la paie</Text>
+             </TouchableOpacity>
+          </>
         )}
 
         <TouchableOpacity 

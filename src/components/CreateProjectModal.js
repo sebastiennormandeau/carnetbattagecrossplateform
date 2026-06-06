@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, Modal, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Alert, Switch } from 'react-native';
 import useProjectStore from '../store/useProjectStore';
 
 const CreateProjectModal = ({ visible, onClose }) => {
@@ -9,6 +9,8 @@ const CreateProjectModal = ({ visible, onClose }) => {
     const [name, setName] = useState('');
     const [address, setAddress] = useState('');
     const [client, setClient] = useState('');
+    const [isCCQ, setIsCCQ] = useState(true);
+    const [allowPunchWithoutLocation, setAllowPunchWithoutLocation] = useState(false);
     
     const handleCreate = async () => {
         if (!projectNumber.trim()) {
@@ -21,13 +23,17 @@ const CreateProjectModal = ({ visible, onClose }) => {
                 projectNumber: projectNumber.trim(),
                 name: name.trim() || 'Sans nom',
                 address: address.trim() || 'Adresse non spécifiée',
-                client: client.trim() || 'Client non spécifié'
+                client: client.trim() || 'Client non spécifié',
+                isCCQ: isCCQ,
+                allowPunchWithoutLocation: allowPunchWithoutLocation
             });
             // Réinitialiser les champs et fermer
             setProjectNumber('');
             setName('');
             setAddress('');
             setClient('');
+            setIsCCQ(true);
+            setAllowPunchWithoutLocation(false);
             onClose();
         } catch (error) {
             Alert.alert("Erreur", "Une erreur est survenue lors de la création.");
@@ -78,6 +84,24 @@ const CreateProjectModal = ({ visible, onClose }) => {
                         value={client}
                         onChangeText={setClient}
                     />
+
+                    <View style={styles.switchContainer}>
+                        <Text style={styles.switchLabel}>Projet assujetti à la CCQ</Text>
+                        <Switch
+                            value={isCCQ}
+                            onValueChange={setIsCCQ}
+                            trackColor={{ false: '#7f8c8d', true: '#3498db' }}
+                        />
+                    </View>
+
+                    <View style={[styles.switchContainer, {marginTop: 0}]}>
+                        <Text style={styles.switchLabel}>Punch Libre (sans validation GPS)</Text>
+                        <Switch
+                            value={allowPunchWithoutLocation}
+                            onValueChange={setAllowPunchWithoutLocation}
+                            trackColor={{ false: '#7f8c8d', true: '#27ae60' }}
+                        />
+                    </View>
 
                     <View style={styles.buttonsContainer}>
                         <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
@@ -133,6 +157,22 @@ const styles = StyleSheet.create({
         fontSize: 16,
         color: '#2c3e50',
         marginBottom: 15
+    },
+    switchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 20,
+        backgroundColor: '#F8F9FA',
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#ecf0f1',
+    },
+    switchLabel: {
+        fontSize: 16,
+        color: '#2c3e50',
+        fontWeight: '500'
     },
     buttonsContainer: {
         flexDirection: 'row',

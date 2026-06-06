@@ -198,7 +198,9 @@ const AssignProjectModal = ({ visible, onClose, projectId }) => {
 
                     if (tokensToNotify.length > 0) {
                         const title = "Nouvelle assignation !";
-                        const body = `Vous avez été assigné au projet ${projectName} (${projectAddress}).`;
+                        const formattedStartDate = startDate.toLocaleDateString();
+                        const formattedEndDate = endDate.toLocaleDateString();
+                        const body = `Vous avez été assigné au projet ${projectName} pour la période du ${formattedStartDate} au ${formattedEndDate}.`;
                         await sendPushNotification(tokensToNotify, title, body);
                     }
                 } catch (notifError) {

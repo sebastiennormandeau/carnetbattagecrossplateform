@@ -17,6 +17,7 @@ export default {
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.VibeCodingMind.SmartPiling",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "config": {
         "googleMapsApiKey": process.env.GOOGLE_MAPS_API_KEY_IOS
       }
@@ -29,6 +30,7 @@ export default {
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "package": "com.VibeCodingMind.SmartPiling",
+      "googleServicesFile": "./google-services.json",
       "config": {
         "googleMaps": {
           "apiKey": process.env.GOOGLE_MAPS_API_KEY_ANDROID
@@ -46,7 +48,14 @@ export default {
     "plugins": [
       "expo-sharing",
       "expo-mail-composer",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.jpg",
+          "color": "#ffffff"
+        }
+      ]
     ]
   }
 };

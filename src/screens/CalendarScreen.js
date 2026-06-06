@@ -4,7 +4,7 @@ import useProjectStore from '../store/useProjectStore';
 import AdminCalendar from './AdminCalendar';
 import EmployeeCalendar from './EmployeeCalendar';
 
-const CalendarScreen = () => {
+const CalendarScreen = ({ route }) => {
     const { userRole, isLoading, error, initializeData, cleanup } = useProjectStore();
 
     useEffect(() => {
@@ -32,7 +32,7 @@ const CalendarScreen = () => {
     }
 
     // Affiche la vue appropriée en fonction du rôle
-    return userRole === 'admin' ? <AdminCalendar /> : <EmployeeCalendar />;
+    return userRole === 'admin' ? <AdminCalendar route={route} /> : <EmployeeCalendar route={route} />;
 };
 
 const styles = StyleSheet.create({

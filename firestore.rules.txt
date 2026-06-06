@@ -109,6 +109,13 @@ service cloud.firestore {
       allow delete: if hasTenant() && isSameTenant(resource.data) && isAdmin();
     }
 
+    match /timesheet_entries/{entryId} {
+      allow read: if hasTenant() && isSameTenant(resource.data) && (isAdmin() || resource.data.employeeId == request.auth.uid);
+      allow create: if hasTenant() && isSameTenant(request.resource.data) && request.resource.data.employeeId == request.auth.uid;
+      allow update: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && (isAdmin() || resource.data.employeeId == request.auth.uid);
+      allow delete: if hasTenant() && isSameTenant(resource.data) && isAdmin();
+    }
+
     match /settings/{docId} {
       allow read: if hasTenant() && (resource == null || resource.data.companyId == request.auth.token.companyId);
       allow create: if hasTenant() && request.resource.data.companyId == request.auth.token.companyId && isAdmin();

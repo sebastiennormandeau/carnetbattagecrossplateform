@@ -19,9 +19,12 @@ import ProjectDocsScreen from './src/screens/ProjectDocsScreen';
 import AdminScreen from './src/screens/AdminScreen';
 import PunchScreen from './src/screens/PunchScreen';
 import EngineeringScreen from './src/screens/EngineeringScreen';
+import ProjectsCRMScreen from './src/screens/ProjectsCRMScreen';
 import HammerConfigScreen from './src/screens/HammerConfigScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import LegalScreen from './src/screens/LegalScreen';
+import AdminPayrollDashboard from './src/screens/AdminPayrollDashboard';
+import AdminUserManagementScreen from './src/screens/AdminUserManagementScreen';
 import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 import { theme } from './src/theme/Theme';
 import usePilingStore from './src/store/usePilingStore';
@@ -144,9 +147,24 @@ export default function App() {
               options={{ headerShown: false }}
             />
             <Stack.Screen 
+              name="AdminPayroll" 
+              component={AdminPayrollDashboard} 
+              options={{ title: 'Export Paie' }}
+            />
+            <Stack.Screen 
               name="Punch" 
               component={PunchScreen} 
               options={{ title: 'Horodateur' }}
+            />
+            <Stack.Screen 
+              name="AdminUserManagement" 
+              component={AdminUserManagementScreen} 
+              options={{ title: 'Gestion des Employés' }}
+            />
+            <Stack.Screen 
+              name="ProjectsCRM" 
+              component={ProjectsCRMScreen} 
+              options={{ title: 'Projets CRM' }}
             />
             <Stack.Screen 
               name="Formulas" 

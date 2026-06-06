@@ -77,6 +77,7 @@ const useProjectStore = create((set, get) => ({
             const projectsRef = collection(db, 'projects');
             await addTenantDoc(projectsRef, {
                 ...projectData,
+                isCCQ: projectData.isCCQ !== undefined ? projectData.isCCQ : true,
                 status: 'standby',
                 assignedUsers: [],
                 ownerUid: currentUser.uid,
@@ -90,8 +91,7 @@ const useProjectStore = create((set, get) => ({
 
     deleteProject: async (projectId) => {
         try {
-            const eventsRef = collection(db, 'calendar_events');
-            const q = query(eventsRef, where('projectId', '==', projectId));
+            const q = getTenantQuery('calendar_events', where('projectId', '==', projectId));
             const querySnapshot = await getDocs(q);
             
             const deletePromises = querySnapshot.docs.map(docSnap => deleteDoc(docSnap.ref));
@@ -101,6 +101,22 @@ const useProjectStore = create((set, get) => ({
             await deleteDoc(projectRef);
         } catch (error) {
             console.error("Erreur lors de la suppression du projet:", error);
+            throw error;
+        }
+    },
+
+    updateProjectStatus: async (projectId, newStatus) => {
+        try {
+            const currentUser = auth.currentUser;
+            if (!currentUser) throw new Error("Non authentifié");
+            
+            const projectRef = doc(db, 'projects', projectId);
+            await updateDoc(projectRef, {
+                status: newStatus,
+                updatedAt: new Date().toISOString()
+            });
+        } catch (error) {
+            console.error("Erreur lors de la mise à jour du statut:", error);
             throw error;
         }
     },

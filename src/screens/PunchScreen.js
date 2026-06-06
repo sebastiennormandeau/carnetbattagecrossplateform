@@ -20,6 +20,7 @@ export default function PunchScreen({ navigation }) {
 
     const [deductLunch, setDeductLunch] = useState(false);
     const [lunchMinutes, setLunchMinutes] = useState('30');
+    const [userProfile, setUserProfile] = useState(null);
 
     // Get current user and privileges
     useEffect(() => {
@@ -108,10 +109,22 @@ export default function PunchScreen({ navigation }) {
             console.error("Failed to load punch settings:", e);
         }
 
+        let unsubUserProfile = () => {};
+        try {
+            unsubUserProfile = onSnapshot(doc(db, 'users', user.uid), docSnap => {
+                if (docSnap.exists()) {
+                    setUserProfile(docSnap.data());
+                }
+            });
+        } catch(e) {
+            console.error("Failed to load user profile:", e);
+        }
+
         return () => {
             unsubscribeProjects();
             unsubShift();
             unsubPunchSettings();
+            unsubUserProfile();
         };
     }, []);
 
@@ -130,8 +143,12 @@ export default function PunchScreen({ navigation }) {
         RANGE_LIMIT_METERS
     } = usePunchLocation(targetLatitude, targetLongitude);
 
+    const allowPunchWithoutLoc = activeProject?.allowPunchWithoutLocation === true;
+    const effectiveIsWithinRange = allowPunchWithoutLoc || isWithinRange;
+    const effectiveMissingGpsProject = allowPunchWithoutLoc ? false : missingGpsProject;
+
     const handlePunchIn = async () => {
-        if (!currentLocation || !selectedProjectId) return;
+        if ((!currentLocation && !allowPunchWithoutLoc) || !selectedProjectId) return;
         setProcessing(true);
         try {
             await addTenantDoc(collection(db, 'shifts'), {
@@ -140,7 +157,7 @@ export default function PunchScreen({ navigation }) {
                 projectId: selectedProjectId,
                 projectName: activeProject.name,
                 punchInTime: serverTimestamp(), // Sécurisé: heure du serveur
-                punchInLoc: { lat: currentLocation.latitude, lng: currentLocation.longitude },
+                punchInLoc: currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : null,
                 punchOutTime: null,
                 punchOutLoc: null
             });
@@ -153,12 +170,33 @@ export default function PunchScreen({ navigation }) {
     };
 
     const handlePunchOut = async () => {
-        if (!activeShift || !currentLocation || !selectedProjectId) return;
+        if (!activeShift || (!currentLocation && !allowPunchWithoutLoc) || !selectedProjectId) return;
         setProcessing(true);
         try {
+            const outDate = new Date();
+            const inDateMs = activeShift.punchInTime ? activeShift.punchInTime.seconds * 1000 : outDate.getTime();
+            let diffMs = outDate.getTime() - inDateMs;
+            
+            // Lunch deduction logic if applicable for this shift
+            if (deductLunch) {
+                const inDateObj = new Date(inDateMs);
+                if (inDateObj.getHours() < 12 && outDate.getHours() >= 12) {
+                    const lunchMs = (parseInt(lunchMinutes) || 0) * 60 * 1000;
+                    diffMs -= lunchMs;
+                    if (diffMs < 0) diffMs = 0;
+                }
+            }
+            
+            const durationH = diffMs / 3600000; // Format décimal
+
             await updateDoc(doc(db, 'shifts', activeShift.id), {
                 punchOutTime: serverTimestamp(),
-                punchOutLoc: { lat: currentLocation.latitude, lng: currentLocation.longitude }
+                punchOutLoc: currentLocation ? { lat: currentLocation.latitude, lng: currentLocation.longitude } : null,
+                durationH: durationH,
+                projectId: selectedProjectId, // Ensure the selected project is saved on punch out if it changed
+                isCCQ: activeProject ? activeProject.isCCQ !== false : true,
+                trade: userProfile?.trade || 'SHOP',
+                sector: userProfile?.sector || 'HORS-DECRET'
             });
             // Réinitialiser la séléction après punch out
             if (projects.length > 0) setSelectedProjectId(projects[0].id);
@@ -245,22 +283,27 @@ export default function PunchScreen({ navigation }) {
                 <View style={styles.gpsCard}>
                     {loadingLocalisation ? (
                         <ActivityIndicator color={theme.colors.primary} />
-                    ) : errorMsg ? (
+                    ) : errorMsg && !allowPunchWithoutLoc ? (
                         <Text style={styles.errorText}>{errorMsg}</Text>
-                    ) : missingGpsProject ? (
+                    ) : effectiveMissingGpsProject ? (
                         <Text style={styles.errorText}>Le chantier sélectionné n'a pas de position GPS enregistrée par un superviseur.</Text>
+                    ) : allowPunchWithoutLoc ? (
+                        <View style={{alignItems: 'center'}}>
+                            <Ionicons name="globe-outline" size={32} color={theme.colors.success} />
+                            <Text style={styles.gpsSuccessText}>Ce projet permet le punch libre (sans validation GPS).</Text>
+                        </View>
                     ) : (
                         <View style={{alignItems: 'center'}}>
-                            <Ionicons name="location" size={32} color={isWithinRange ? theme.colors.success : theme.colors.error} />
+                            <Ionicons name="location" size={32} color={effectiveIsWithinRange ? theme.colors.success : theme.colors.error} />
                             <Text style={styles.gpsDistanceText}>
                                 {distanceMeters !== null ? `Distance du chantier : ${distanceMeters} m` : "Calcul..."}
                             </Text>
-                            {!isWithinRange && distanceMeters !== null && (
+                            {!effectiveIsWithinRange && distanceMeters !== null && (
                                 <Text style={styles.gpsWarningText}>
                                     Vous devez être à moins de {RANGE_LIMIT_METERS}m pour signaler votre présence.
                                 </Text>
                             )}
-                            {isWithinRange && (
+                            {effectiveIsWithinRange && (
                                 <Text style={styles.gpsSuccessText}>Position validée.</Text>
                             )}
                         </View>
@@ -275,9 +318,9 @@ export default function PunchScreen({ navigation }) {
                         style={[
                             styles.punchButton, 
                             styles.punchInButton, 
-                            (!isWithinRange || processing || missingGpsProject || errorMsg) && styles.disabledButton
+                            (!effectiveIsWithinRange || processing || effectiveMissingGpsProject || (errorMsg && !allowPunchWithoutLoc)) && styles.disabledButton
                         ]}
-                        disabled={!isWithinRange || processing || missingGpsProject || !!errorMsg}
+                        disabled={!effectiveIsWithinRange || processing || effectiveMissingGpsProject || (!!errorMsg && !allowPunchWithoutLoc)}
                         onPress={handlePunchIn}
                     >
                         {processing ? <ActivityIndicator color="white" /> : <Text style={styles.punchBtnText}>PUNCH IN</Text>}
@@ -287,9 +330,9 @@ export default function PunchScreen({ navigation }) {
                         style={[
                             styles.punchButton, 
                             styles.punchOutButton, 
-                            (!isWithinRange || processing || errorMsg) && styles.disabledButton
+                            (!effectiveIsWithinRange || processing || effectiveMissingGpsProject || (errorMsg && !allowPunchWithoutLoc)) && styles.disabledButton
                         ]}
-                        disabled={!isWithinRange || processing || !!errorMsg}
+                        disabled={!effectiveIsWithinRange || processing || effectiveMissingGpsProject || (!!errorMsg && !allowPunchWithoutLoc)}
                         onPress={handlePunchOut}
                     >
                         {processing ? <ActivityIndicator color="white" /> : <Text style={styles.punchBtnText}>PUNCH OUT</Text>}

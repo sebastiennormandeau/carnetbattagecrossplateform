@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "523755259959",
+    "project_id": "smart-piling-app",
+    "storage_bucket": "smart-piling-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:523755259959:android:1f89c0ee7ca41d576917b2",
+        "android_client_info": {
+          "package_name": "com.VibeCodingMind.SmartPiling"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMlt97WRwOvt6Ft69yTgrgnNb5wU8b28w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

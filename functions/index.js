@@ -77,10 +77,10 @@ exports.syncPayrollData = onCall(async (request) => {
     }
 
     try {
-        console.log(`Envoi du payload à l'API de paie (Nethris/EmployeurD) pour ${payload.employeeProfile.id}...`);
+        console.log(`Envoi du payload à l'API de paie externe pour ${payload.employeeProfile.id}...`);
         
         // 2. Appel POST simulé vers l'API de paie externe
-        // ex: const response = await axios.post('https://api.nethris.com/v1/calculate', payload, { headers: { 'Authorization': `Bearer ${API_KEY}` } });
+        // ex: const response = await axios.post('https://api.payroll-provider.com/v1/calculate', payload, { headers: { 'Authorization': `Bearer ${API_KEY}` } });
         // Pour cet exemple, nous retournons un objet mocké qui représente exactement la réponse de l'API.
 
         const baseRate = 45.50;
@@ -136,6 +136,63 @@ exports.syncPayrollData = onCall(async (request) => {
         console.error("Erreur de l'API de paie externe:", error);
         throw new HttpsError("internal", "Erreur lors de la communication avec le moteur de paie.");
     }
+});
+
+/**
+ * ADAPTATEUR DE PAIE (Strategy Pattern)
+ * Calcule la paie de manière agnostique.
+ */
+exports.calculatePayroll = onCall(async (request) => {
+    const payload = request.data;
+    const auth = request.auth;
+
+    if (!auth) {
+        throw new HttpsError("unauthenticated", "Vous devez être connecté.");
+    }
+
+    const { userId, companyId, dateRange, timesheetEntries = [], payrollProvider = 'mock', nonTaxableAllowances = 0 } = payload;
+
+    // TODO: Activer cette vérification de sécurité lorsque le frontend sera capable d'envoyer le bon companyId
+    // if (companyId !== auth.token.companyId) {
+    //     throw new HttpsError("permission-denied", "Accès refusé pour cette compagnie.");
+    // }
+
+    let result = {};
+
+    switch (payrollProvider) {
+        case 'mock':
+            // Logique mock
+            let totalHours = 0;
+            timesheetEntries.forEach(entry => {
+                totalHours += entry.hours || 0;
+            });
+
+            const grossPay = totalHours * 45.0; // 45$/h par défaut
+            const ccqDeduction = grossPay * 0.13;
+            const taxablePay = grossPay - ccqDeduction;
+            
+            const federalTax = taxablePay * 0.15;
+            const provincialTax = taxablePay * 0.15;
+            
+            const netPay = (grossPay - ccqDeduction - federalTax - provincialTax) + nonTaxableAllowances;
+
+            result = {
+                grossPay: parseFloat(grossPay.toFixed(2)),
+                ccqDeduction: parseFloat(ccqDeduction.toFixed(2)),
+                taxes: {
+                    federal: parseFloat(federalTax.toFixed(2)),
+                    provincial: parseFloat(provincialTax.toFixed(2)),
+                },
+                netPay: parseFloat(netPay.toFixed(2)),
+                nonTaxableAllowances: parseFloat(nonTaxableAllowances.toFixed(2))
+            };
+            break;
+
+        default:
+            throw new HttpsError("invalid-argument", `Fournisseur de paie inconnu: ${payrollProvider}`);
+    }
+
+    return result;
 });
 
 const { onRequest } = require("firebase-functions/v2/https");
