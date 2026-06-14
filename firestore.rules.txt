@@ -7,14 +7,19 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.companyId != null;
     }
 
-    // L'utilisateur est admin de son tenant
-    function isAdmin() {
-      return request.auth != null && request.auth.token.role == 'admin';
+    // Le compte de support central (Super-Admin)
+    function isSuperAdmin() {
+      return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isSuperAdmin == true;
     }
 
-    // Le document appartient au même tenant que l'utilisateur
+    // L'utilisateur est admin de son tenant, ou Super-Admin
+    function isAdmin() {
+      return (request.auth != null && request.auth.token.role == 'admin') || isSuperAdmin();
+    }
+
+    // Le document appartient au même tenant que l'utilisateur (ou Super-Admin)
     function isSameTenant(docData) {
-      return docData.companyId == request.auth.token.companyId;
+      return (request.auth.token.companyId != null && docData.companyId == request.auth.token.companyId) || isSuperAdmin();
     }
 
     // L'utilisateur est-il assigné à ce projet spécifique
@@ -23,14 +28,14 @@ service cloud.firestore {
              request.auth.uid in get(/databases/$(database)/documents/projects/$(projectId)).data.assignedUsers;
     }
 
-    // Vérifie que le projet parent appartient bien à la bonne compagnie (pour les sous-collections)
+    // Vérifie que le projet parent appartient bien à la bonne compagnie (ou Super-Admin)
     function parentProjectIsSameTenant(projectId) {
-      return get(/databases/$(database)/documents/projects/$(projectId)).data.companyId == request.auth.token.companyId;
+      return (request.auth.token.companyId != null && get(/databases/$(database)/documents/projects/$(projectId)).data.companyId == request.auth.token.companyId) || isSuperAdmin();
     }
 
     match /users/{userId} {
       // Un utilisateur peut TOUJOURS lire ses propres infos, ou celles des autres de son entreprise
-      allow read: if request.auth.uid == userId || (hasTenant() && isSameTenant(resource.data)); 
+      allow read: if request.auth.uid == userId || (hasTenant() && isSameTenant(resource.data)) || isSuperAdmin(); 
       // Un utilisateur peut se modifier lui-même, ou un admin de SON entreprise peut le modifier
       // Dans les deux cas, le nouveau document DOIT rester dans la même entreprise
       allow write: if request.auth.uid == userId || (hasTenant() && 
@@ -39,7 +44,7 @@ service cloud.firestore {
                      (resource == null) || 
                      isSameTenant(resource.data)
                    ) &&
-                   isAdmin());
+                   isAdmin()) || isSuperAdmin();
     }
 
     // Collection obsolète ?

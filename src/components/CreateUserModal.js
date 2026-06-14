@@ -24,6 +24,7 @@ export default function CreateUserModal({ visible, onClose, userToEdit }) {
     const [trade, setTrade] = useState(CCQ_TRADES[0]);
     const [sector, setSector] = useState(CCQ_SECTORS[0]);
     const [isActive, setIsActive] = useState(true);
+    const [password, setPassword] = useState('');
 
     useEffect(() => {
         if (userToEdit) {
@@ -42,6 +43,7 @@ export default function CreateUserModal({ visible, onClose, userToEdit }) {
             setTrade(CCQ_TRADES[0]);
             setSector(CCQ_SECTORS[0]);
             setIsActive(true);
+            setPassword('');
         }
     }, [userToEdit, visible]);
 
@@ -50,26 +52,43 @@ export default function CreateUserModal({ visible, onClose, userToEdit }) {
             Alert.alert("Erreur", "Le nom et le courriel sont obligatoires.");
             return;
         }
+        
+        if (!userToEdit && password.length < 6) {
+            Alert.alert("Erreur", "Un mot de passe d'au moins 6 caractères est requis pour un nouvel employé.");
+            return;
+        }
 
         try {
-            // Si userToEdit existe, on le met à jour.
-            // Sinon, on simule une création (dans un système de prod, appel à une Cloud Function).
-            const uid = userToEdit ? userToEdit.id : `temp_${Date.now()}`; 
+            if (userToEdit) {
+                // Mise à jour d'un utilisateur existant
+                await updateUserProfile(userToEdit.id, {
+                    name,
+                    email,
+                    role,
+                    employeeId,
+                    trade,
+                    sector,
+                    isActive
+                });
+                Alert.alert("Succès", "Profil mis à jour.");
+            } else {
+                // Création d'un nouvel utilisateur avec authentification
+                const { createUserProfile } = useUserStore.getState();
+                await createUserProfile({
+                    name,
+                    email,
+                    role,
+                    employeeId,
+                    trade,
+                    sector,
+                    isActive
+                }, password);
+                Alert.alert("Succès", "Nouvel employé créé et authentifié.");
+            }
             
-            await updateUserProfile(uid, {
-                name,
-                email,
-                role,
-                employeeId,
-                trade,
-                sector,
-                isActive
-            });
-            
-            Alert.alert("Succès", userToEdit ? "Profil mis à jour." : "Profil créé (Note: L'authentification nécessite une Cloud Function).");
             onClose();
         } catch (error) {
-            Alert.alert("Erreur", "Impossible de sauvegarder le profil.");
+            Alert.alert("Erreur", "Impossible de sauvegarder le profil : " + error.message);
         }
     };
 
@@ -104,6 +123,20 @@ export default function CreateUserModal({ visible, onClose, userToEdit }) {
                         autoCapitalize="none"
                         editable={!userToEdit} // Ne pas changer l'email facilement
                     />
+
+                    {!userToEdit && (
+                        <>
+                            <Text style={styles.label}>Mot de passe temporaire *</Text>
+                            <TextInput 
+                                style={styles.input}
+                                value={password}
+                                onChangeText={setPassword}
+                                placeholder="Au moins 6 caractères"
+                                placeholderTextColor="#7f8c8d"
+                                secureTextEntry
+                            />
+                        </>
+                    )}
 
                     <Text style={styles.label}>Rôle</Text>
                     <View style={styles.pickerContainer}>

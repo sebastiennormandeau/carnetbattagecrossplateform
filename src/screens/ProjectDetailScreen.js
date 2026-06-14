@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useLayoutEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, TextInput, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, TextInput, Alert, Image, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import * as MailComposer from 'expo-mail-composer';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { db, storage } from '../config/firebase';
@@ -57,6 +57,9 @@ export default function ProjectDetailScreen({ route, navigation }) {
         setLocationInput(data.location || '');
         setExpectedDepthInput(data.expectedDepth ? data.expectedDepth.toString() : '');
       }
+    }, (err) => {
+        console.error("Erreur Project listener:", err);
+        setLoading(false);
     });
 
     // 2. Listen to the Piles subcollection
@@ -94,23 +97,52 @@ export default function ProjectDetailScreen({ route, navigation }) {
       });
       setPiles(pilesData);
       setLoading(false);
+    }, (err) => {
+        console.error("Erreur Piles listener:", err);
+        setLoading(false);
     });
 
     // 3. Listen to Photos
     const photosRef = collection(db, 'projects', projectId, 'photos');
     const unsubPhotos = onSnapshot(photosRef, async (snapshot) => {
-      const photosData = [];
-      for (const d of snapshot.docs) {
-         const pData = d.data();
-         let url = pData.url || pData.downloadUrl || null;
-         if (!url && pData.storagePath) {
-             try {
-                url = await getDownloadURL(ref(storage, pData.storagePath));
-             } catch(e){}
-         }
-         photosData.push({ id: d.id, ...pData, url });
-      }
+      let photosData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setPhotos(photosData);
+
+      // Fetch URLs asynchronously
+      photosData.forEach(async (photo) => {
+          if (!photo.url && !photo.downloadUrl && photo.storagePath) {
+              try {
+                  const url = await getDownloadURL(ref(storage, photo.storagePath));
+                  setPhotos(prev => {
+                      const next = [...prev];
+                      const idx = next.findIndex(p => p.id === photo.id);
+                      if (idx !== -1) {
+                          next[idx] = { ...next[idx], url };
+                      }
+                      return next;
+                  });
+              } catch(e) {
+                  console.log("Photo getDownloadURL error:", e.code, e.message);
+                  setPhotos(prev => {
+                      const next = [...prev];
+                      const idx = next.findIndex(p => p.id === photo.id);
+                      if (idx !== -1) {
+                          next[idx] = { ...next[idx], urlError: e.message || 'Erreur réseau/CORS' };
+                      }
+                      return next;
+                  });
+              }
+          } else if (photo.downloadUrl && !photo.url) {
+              setPhotos(prev => {
+                  const next = [...prev];
+                  const idx = next.findIndex(p => p.id === photo.id);
+                  if (idx !== -1) {
+                      next[idx] = { ...next[idx], url: photo.downloadUrl };
+                  }
+                  return next;
+              });
+          }
+      });
     }, (err) => console.log('Photos listener error:', err));
 
     // 4. Listen to Notes
@@ -376,8 +408,8 @@ export default function ProjectDetailScreen({ route, navigation }) {
       const photoHtmlPromises = selectedPhotos.map(async (p) => {
          try {
            if (!p.url) return '';
-           const tempFile = FileSystem.cacheDirectory + p.id + '_raw.jpg';
-           const downloadObj = await FileSystem.downloadAsync(p.url, tempFile);
+           const targetFile = new File(Paths.cache, p.id + '_raw.jpg');
+           const downloadObj = await File.downloadFileAsync(p.url, targetFile, { idempotent: true });
            
            // Solution: on passe uniquement width sans aucune autre clé pour éviter le NullPointerException
            const manipResult = await ImageManipulator.manipulateAsync(
@@ -386,7 +418,8 @@ export default function ProjectDetailScreen({ route, navigation }) {
               { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
            );
            
-           const b64 = await FileSystem.readAsStringAsync(manipResult.uri, { encoding: FileSystem.EncodingType.Base64 });
+           const manipFile = new File(manipResult.uri);
+           const b64 = await manipFile.base64();
            return `
             <div class="photo-container">
               <img src="data:image/jpeg;base64,${b64}" class="photo-img" />
@@ -487,19 +520,20 @@ export default function ProjectDetailScreen({ route, navigation }) {
       
       const safeName = (project?.name || 'Projet').replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 50);
       const stamp = new Date().toISOString().replace(/[:.]/g, '').substring(0, 15);
-      const newPath = FileSystem.cacheDirectory + `Rapport_${safeName}_${stamp}.pdf`;
+      const newFile = new File(Paths.cache, `Rapport_${safeName}_${stamp}.pdf`);
       
-      await FileSystem.moveAsync({ from: uri, to: newPath });
+      const oldFile = new File(uri);
+      oldFile.move(newFile);
       
       const isAvailable = await MailComposer.isAvailableAsync();
       if (isAvailable) {
          await MailComposer.composeAsync({
             subject: `Rapport de projet: ${project?.name ? project.name.trim() : 'Projet'}`,
             body: "Veuillez trouver ci-joint le rapport de projet au format PDF.",
-            attachments: [newPath]
+            attachments: [newFile.uri]
          });
       } else {
-         await Sharing.shareAsync(newPath, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'Partager le rapport' });
+         await Sharing.shareAsync(newFile.uri, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'Partager le rapport' });
       }
     } catch(e) {
       console.error("PDF Export Crash:", e);
@@ -859,6 +893,21 @@ export default function ProjectDetailScreen({ route, navigation }) {
                       <Image source={{uri: p.url}} style={{width: 120, height: 120, borderRadius: 8, backgroundColor: '#333', opacity: p.includeInReport !== false ? 1 : 0.3}} />
                       {p.includeInReport !== false && <View style={styles.checkBadge}><Text style={{color:'white', fontWeight:'bold'}}>✓</Text></View>}
                     </View>
+                 ) : p.urlError ? (
+                    <TouchableOpacity 
+                       style={{width: 120, height: 120, borderRadius: 8, backgroundColor: '#551111', justifyContent: 'center', alignItems: 'center', padding: 5}}
+                       onPress={() => {
+                           if (Platform.OS === 'web') {
+                               window.alert("Détails de l'erreur:\n" + p.urlError);
+                           } else {
+                               Alert.alert("Détails de l'erreur", p.urlError);
+                           }
+                       }}
+                    >
+                       <Ionicons name="warning-outline" size={30} color="#ff4444" />
+                       <Text style={{color: '#ff4444', fontSize: 12, textAlign: 'center', marginTop: 5, fontWeight: 'bold'}} numberOfLines={3}>{p.urlError}</Text>
+                       <Text style={{color: 'white', fontSize: 9, marginTop: 5}}>Toucher pour lire</Text>
+                    </TouchableOpacity>
                  ) : (
                     <View style={{width: 120, height: 120, borderRadius: 8, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center'}}>
                        <ActivityIndicator color={theme.colors.primary} />

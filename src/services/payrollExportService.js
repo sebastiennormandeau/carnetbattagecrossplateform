@@ -1,5 +1,6 @@
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import { Platform } from 'react-native';
 
 export const exportToPayrollCSV = async (timesheetEntries) => {
     try {
@@ -27,8 +28,8 @@ export const exportToPayrollCSV = async (timesheetEntries) => {
 
             const row = [
                 entry.date || '',
-                entry.employeeId || '',
-                entry.projectId || '',
+                entry.employeeName || entry.employeeId || '',
+                entry.projectName || entry.projectId || '',
                 isCCQ ? 'OUI' : 'NON',
                 trade,
                 sector,
@@ -50,24 +51,40 @@ export const exportToPayrollCSV = async (timesheetEntries) => {
             csvContent += formattedRow.join(';') + '\n';
         });
 
-        // Créer un nom de fichier unique
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         const fileName = `Export_Paie_Externe_${timestamp}.csv`;
-        const fileUri = FileSystem.documentDirectory + fileName;
 
-        // Écrire le fichier localement
-        await FileSystem.writeAsStringAsync(fileUri, csvContent, { encoding: FileSystem.EncodingType.UTF8 });
-
-        // Partager le fichier (ce qui permet de l'enregistrer dans les Fichiers ou de l'envoyer par email)
-        if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(fileUri, {
-                mimeType: 'text/csv',
-                dialogTitle: 'Exporter les données de paie'
-            });
-            return { success: true, fileUri };
+        if (Platform.OS === 'web') {
+            // Web: Create a Blob and trigger a download via <a> tag
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', fileName);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            return { success: true, message: "Fichier téléchargé" };
         } else {
-            console.warn("Le partage n'est pas disponible sur cet appareil.");
-            return { success: false, error: "Partage non supporté" };
+            // Mobile: Write to local file and use expo-sharing
+            const file = new File(Paths.document, fileName);
+
+            // Écrire le fichier localement
+            file.write(csvContent);
+            console.log("CSV de paie sauvegardé dans :", file.uri);
+
+            // Partager le fichier
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(file.uri, {
+                    mimeType: 'text/csv',
+                    dialogTitle: 'Exporter les données de paie'
+                });
+                return { success: true, fileUri: file.uri };
+            } else {
+                console.warn("Le partage n'est pas disponible sur cet appareil.");
+                return { success: false, error: "Partage non supporté" };
+            }
         }
     } catch (error) {
         console.error("Erreur lors de l'exportation CSV:", error);

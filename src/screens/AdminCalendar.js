@@ -1,10 +1,10 @@
 import React, { useMemo, useRef, useCallback, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert, Platform, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import CreateProjectModal from '../components/CreateProjectModal';
 import AssignProjectModal from '../components/AssignProjectModal';
 import EditDailyAssignmentModal from '../components/EditDailyAssignmentModal';
-import { Calendar, LocaleConfig } from 'react-native-calendars';
+import { Calendar, LocaleConfig, CalendarProvider, WeekCalendar } from 'react-native-calendars';
 import BottomSheet, { BottomSheetFlatList } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import useProjectStore from '../store/useProjectStore';
@@ -30,11 +30,18 @@ const AdminCalendar = ({ route }) => {
     const navigation = useNavigation();
     
     const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [viewMode, setViewMode] = useState('week'); // 'month' ou 'week'
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [projectToAssign, setProjectToAssign] = useState(null);
     const [eventToEdit, setEventToEdit] = useState(null);
     const [usersMap, setUsersMap] = useState({});
     const [totalEmployees, setTotalEmployees] = useState(0);
+
+    const changeWeek = (direction) => {
+        const currentDate = new Date(selectedDate);
+        currentDate.setDate(currentDate.getDate() + (direction === 'next' ? 7 : -7));
+        setSelectedDate(currentDate.toISOString().split('T')[0]);
+    };
 
     useEffect(() => {
         const fetchUsers = async () => {
@@ -65,7 +72,10 @@ const AdminCalendar = ({ route }) => {
     }, [route?.params?.assignProjectId]);
 
     // Points d'ancrage du bottom sheet
-    const snapPoints = useMemo(() => ['15%', '50%'], []);
+    const snapPoints = useMemo(() => ['10%', '50%', '90%'], []);
+
+    const { width } = useWindowDimensions();
+    const isDesktop = Platform.OS === 'web' && width > 800;
 
     const standbyProjects = useMemo(() => {
         return projects.filter(p => p.status === 'standby');
@@ -77,20 +87,22 @@ const AdminCalendar = ({ route }) => {
         
         calendarEvents.forEach(event => {
             if (!marks[event.date]) {
-                marks[event.date] = { dots: [] };
+                marks[event.date] = { periods: [] };
             }
-            const hasProjectDot = marks[event.date].dots.some(d => d.key === event.projectId);
-            if (!hasProjectDot) {
-                marks[event.date].dots.push({ 
+            const hasProjectPeriod = marks[event.date].periods.some(p => p.key === event.projectId);
+            if (!hasProjectPeriod) {
+                marks[event.date].periods.push({ 
                     key: event.projectId, 
-                    color: event.colorCode || '#3498db' 
+                    color: event.colorCode || '#3498db',
+                    startingDay: true,
+                    endingDay: true
                 });
             }
         });
 
         // Ajouter la sélection courante
         if (!marks[selectedDate]) {
-            marks[selectedDate] = { selected: true, selectedColor: '#2ecc71', dots: [] };
+            marks[selectedDate] = { selected: true, selectedColor: '#2ecc71', periods: [] };
         } else {
             marks[selectedDate].selected = true;
             marks[selectedDate].selectedColor = '#2ecc71';
@@ -197,44 +209,106 @@ const AdminCalendar = ({ route }) => {
                 <Text style={styles.dashboardMetric}>Staff Utilisé : {staffUtilization}%</Text>
             </View>
 
-            {/* Calendrier Mensuel Robuste */}
-            <Calendar
-                current={selectedDate}
-                markingType={'multi-dot'}
-                onDayPress={(day) => {
-                    setSelectedDate(day.dateString);
-                }}
-                markedDates={markedDates}
-                theme={{
-                    backgroundColor: '#ffffff',
-                    calendarBackground: '#ffffff',
-                    textSectionTitleColor: '#b6c1cd',
-                    selectedDayBackgroundColor: '#2ecc71',
-                    selectedDayTextColor: '#ffffff',
-                    todayTextColor: '#2ecc71',
-                    dayTextColor: '#2d4150',
-                    textDisabledColor: '#d9e1e8',
-                    dotColor: '#2ecc71',
-                    selectedDotColor: '#ffffff',
-                    arrowColor: '#2ecc71',
-                    monthTextColor: '#2d4150',
-                }}
-            />
+            <View style={styles.toggleContainer}>
+                <TouchableOpacity 
+                    style={[styles.toggleButton, viewMode === 'week' && styles.activeToggle]} 
+                    onPress={() => setViewMode('week')}
+                >
+                    <Text style={[styles.toggleText, viewMode === 'week' && styles.activeToggleText]}>Semaine</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                    style={[styles.toggleButton, viewMode === 'month' && styles.activeToggle]} 
+                    onPress={() => setViewMode('month')}
+                >
+                    <Text style={[styles.toggleText, viewMode === 'month' && styles.activeToggleText]}>Mois</Text>
+                </TouchableOpacity>
+            </View>
 
-            {/* Liste des événements du jour */}
-            <View style={styles.listContainer}>
-                <Text style={styles.listHeader}>Événements du {selectedDate}</Text>
-                <FlatList
-                    data={selectedDayEvents}
-                    keyExtractor={(item) => item.id}
-                    renderItem={renderItem}
-                    contentContainerStyle={styles.flatListContent}
-                    ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                            <Text style={styles.emptyText}>Aucun événement pour ce jour.</Text>
-                        </View>
-                    }
-                />
+            {viewMode === 'week' && (
+                <View style={styles.weekNavigation}>
+                    <TouchableOpacity onPress={() => changeWeek('prev')} style={styles.navButton}>
+                        <Ionicons name="chevron-back" size={24} color="#3498db" />
+                        <Text style={styles.navText}>Sem. préc.</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.weekNavTitle}>Navigation</Text>
+                    <TouchableOpacity onPress={() => changeWeek('next')} style={styles.navButton}>
+                        <Text style={styles.navText}>Sem. suiv.</Text>
+                        <Ionicons name="chevron-forward" size={24} color="#3498db" />
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            <View style={{ flexDirection: isDesktop ? 'row' : 'column', flex: 1 }}>
+                <View style={{ flex: isDesktop ? 1 : undefined, maxWidth: isDesktop ? '50%' : '100%' }}>
+                    {/* Calendrier */}
+                    {viewMode === 'month' ? (
+                        <Calendar
+                            current={selectedDate}
+                            markingType={'multi-period'}
+                            onDayPress={(day) => {
+                                setSelectedDate(day.dateString);
+                            }}
+                            markedDates={markedDates}
+                            firstDay={1}
+                            theme={{
+                                backgroundColor: '#ffffff',
+                                calendarBackground: '#ffffff',
+                                textSectionTitleColor: '#b6c1cd',
+                                selectedDayBackgroundColor: '#2ecc71',
+                                selectedDayTextColor: '#ffffff',
+                                todayTextColor: '#2ecc71',
+                                dayTextColor: '#2d4150',
+                                textDisabledColor: '#d9e1e8',
+                                dotColor: '#2ecc71',
+                                selectedDotColor: '#ffffff',
+                                arrowColor: '#2ecc71',
+                                monthTextColor: '#2d4150',
+                            }}
+                        />
+                    ) : (
+                        <CalendarProvider
+                            date={selectedDate}
+                            onDateChanged={(date) => setSelectedDate(date)}
+                            showTodayButton
+                        >
+                            <WeekCalendar
+                                firstDay={1}
+                                calendarWidth={isDesktop ? width / 2 : undefined}
+                                markingType={'multi-period'}
+                                markedDates={markedDates}
+                                theme={{
+                                    backgroundColor: '#ffffff',
+                                    calendarBackground: '#ffffff',
+                                    textSectionTitleColor: '#b6c1cd',
+                                    selectedDayBackgroundColor: '#2ecc71',
+                                    selectedDayTextColor: '#ffffff',
+                                    todayTextColor: '#2ecc71',
+                                    dayTextColor: '#2d4150',
+                                    textDisabledColor: '#d9e1e8',
+                                    dotColor: '#2ecc71',
+                                    selectedDotColor: '#ffffff',
+                                    monthTextColor: '#2d4150',
+                                }}
+                            />
+                        </CalendarProvider>
+                    )}
+                </View>
+
+                {/* Liste des événements du jour */}
+                <View style={[styles.listContainer, isDesktop && { flex: 1, borderLeftWidth: 1, borderLeftColor: '#ecf0f1' }]}>
+                    <Text style={styles.listHeader}>Événements du {selectedDate}</Text>
+                    <FlatList
+                        data={selectedDayEvents}
+                        keyExtractor={(item) => item.id}
+                        renderItem={renderItem}
+                        contentContainerStyle={styles.flatListContent}
+                        ListEmptyComponent={
+                            <View style={styles.emptyContainer}>
+                                <Text style={styles.emptyText}>Aucun événement pour ce jour.</Text>
+                            </View>
+                        }
+                    />
+                </View>
             </View>
 
             {/* Panneau Stand-by */}
@@ -447,6 +521,53 @@ const styles = StyleSheet.create({
         fontSize: 30,
         fontWeight: 'bold',
         marginTop: -2
+    },
+    toggleContainer: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        paddingVertical: 10,
+        backgroundColor: '#ffffff',
+        borderBottomWidth: 1,
+        borderBottomColor: '#ecf0f1',
+    },
+    toggleButton: {
+        paddingVertical: 6,
+        paddingHorizontal: 20,
+        borderRadius: 20,
+        marginHorizontal: 5,
+        backgroundColor: '#f1f2f6',
+    },
+    activeToggle: {
+        backgroundColor: '#3498db',
+    },
+    toggleText: {
+        color: '#7f8c8d',
+        fontWeight: 'bold',
+    },
+    activeToggleText: {
+        color: '#ffffff',
+    },
+    weekNavigation: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+        paddingVertical: 10,
+        backgroundColor: '#ffffff',
+    },
+    navButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    navText: {
+        color: '#3498db',
+        fontWeight: 'bold',
+        fontSize: 16,
+    },
+    weekNavTitle: {
+        color: '#7f8c8d',
+        fontSize: 14,
+        fontWeight: 'bold',
     }
 });
 

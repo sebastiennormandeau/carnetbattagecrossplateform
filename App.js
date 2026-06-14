@@ -28,6 +28,7 @@ import AdminUserManagementScreen from './src/screens/AdminUserManagementScreen';
 import { ActivityIndicator, View, TouchableOpacity, Text } from 'react-native';
 import { theme } from './src/theme/Theme';
 import usePilingStore from './src/store/usePilingStore';
+import useUserStore from './src/store/useUserStore';
 
 const Stack = createNativeStackNavigator();
 
@@ -60,7 +61,8 @@ export default function App() {
         setUser(currentUser);
         setLoading(false);
         
-        // Fetch hammers globally only if the user is authenticated
+        // Fetch profile and hammers globally only if the user is authenticated
+        useUserStore.getState().fetchCurrentUserProfile(currentUser.uid);
         usePilingStore.getState().fetchHammers();
         
         // Enregistrer pour les notifications push

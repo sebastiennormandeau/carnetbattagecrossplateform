@@ -1,6 +1,7 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
+import { Platform } from 'react-native';
 import { calculatePilingData } from './engineeringMath';
 
 const htmlTemplate = `<!DOCTYPE html>
@@ -484,23 +485,28 @@ export async function generatePilingReport(storeState, resultData) {
         .replace(/{{LOGO_BASE64}}/g, storeState.reportLogo || '')
         .replace(/{{TIMESTAMP}}/g, timestamp);
 
-    const { uri } = await Print.printToFileAsync({ html: htmlContent });
-    
-    // Création d'un nom de fichier personnalisé
     const safeProjectName = (storeState.projectName || 'SansTitre').replace(/[^a-zA-Z0-9_\\-]/g, '_').substring(0, 30);
     const dateStamp = new Date().toISOString().replace(/[:.]/g, '').substring(0, 15);
-    const newPath = `${FileSystem.cacheDirectory}NoteCalcul_${safeProjectName}_${dateStamp}.pdf`;
+    const fileName = `NoteCalcul_${safeProjectName}_${dateStamp}.pdf`;
     
-    await FileSystem.moveAsync({
-        from: uri,
-        to: newPath
-    });
+    if (Platform.OS === 'web') {
+        // Sur le web, déclencher directement l'impression ou le téléchargement PDF
+        await Print.printAsync({ html: htmlContent });
+        return { uri: null, success: true };
+    } else {
+        const { uri } = await Print.printToFileAsync({ html: htmlContent });
+        const newFile = new File(Paths.cache, fileName);
+        const oldFile = new File(uri);
+        oldFile.move(newFile);
+        console.log("PDF Note de calcul généré et déplacé vers :", newFile.uri);
 
-    await Sharing.shareAsync(newPath, { 
-        UTI: '.pdf', 
-        mimeType: 'application/pdf', 
-        dialogTitle: 'Partager la note de calcul' 
-    });
+        await Sharing.shareAsync(newFile.uri, { 
+            UTI: '.pdf', 
+            mimeType: 'application/pdf', 
+            dialogTitle: 'Partager la note de calcul' 
+        });
+        return { uri: newFile.uri, success: true };
+    }
 }
 
 export async function generateRefusalChartPdf(storeState) {
@@ -613,13 +619,20 @@ export async function generateRefusalChartPdf(storeState) {
 
     const htmlContent = chartHtmlTemplate.replace(/{{PAGES}}/g, pagesHtml);
 
-    const { uri } = await Print.printToFileAsync({ html: htmlContent });
-    
     const safeProjectName = (storeState.projectName || 'SansTitre').replace(/[^a-zA-Z0-9_\\-]/g, '_').substring(0, 30);
     const dateStamp = new Date().toISOString().replace(/[:.]/g, '').substring(0, 15);
-    const newPath = `${FileSystem.cacheDirectory}AbaqueRefus_${safeProjectName}_${dateStamp}.pdf`;
-    
-    await FileSystem.moveAsync({ from: uri, to: newPath });
+    const fileName = `AbaqueRefus_${safeProjectName}_${dateStamp}.pdf`;
 
-    return { uri: newPath };
+    if (Platform.OS === 'web') {
+        await Print.printAsync({ html: htmlContent });
+        return { uri: null, success: true };
+    } else {
+        const { uri } = await Print.printToFileAsync({ html: htmlContent });
+        const newFile = new File(Paths.cache, fileName);
+        const oldFile = new File(uri);
+        oldFile.move(newFile);
+        console.log("PDF Abaque généré et déplacé vers :", newFile.uri);
+
+        return { uri: newFile.uri };
+    }
 }

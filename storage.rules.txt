@@ -7,10 +7,15 @@ service firebase.storage {
       return request.auth != null && request.auth.token.role == 'admin';
     }
 
-    // Vérifie si le projet parent appartient au même tenant que l'utilisateur actif
+    // Le compte de support central (Super-Admin)
+    function isSuperAdmin() {
+      return request.auth != null && firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.isSuperAdmin == true;
+    }
+
+    // Vérifie si le projet parent appartient au même tenant que l'utilisateur actif (ou Super-Admin)
     function parentProjectIsSameTenant(projectId) {
        let projectDoc = firestore.get(/databases/(default)/documents/projects/$(projectId));
-       return request.auth != null && projectDoc.data.companyId == request.auth.token.companyId;
+       return request.auth != null && (projectDoc.data.companyId == request.auth.token.companyId || isSuperAdmin());
     }
 
     // Vérifie les droits de lecture (propriétaire, ou dans la liste readUsers, ou assignedUsers)
@@ -38,11 +43,32 @@ service firebase.storage {
     // Uniquement la nouvelle architecture de stockage par projet
     match /projects/{projectId}/{allPaths=**} {
       allow read: if request.auth != null && parentProjectIsSameTenant(projectId) && (
-                      isAdmin() || hasProjectReadAccess(projectId)
+                      isSuperAdmin() || isAdmin() || hasProjectReadAccess(projectId)
                   );
       allow write: if request.auth != null && parentProjectIsSameTenant(projectId) && (
-                      isAdmin() || hasProjectWriteAccess(projectId)
+                      isSuperAdmin() || isAdmin() || hasProjectWriteAccess(projectId)
                   );
+    }
+
+    // Support pour les anciens fichiers (Legacy Kotlin App)
+    match /project_photos/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    match /project_docs/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    match /project_plans/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    match /plans/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
 
   }

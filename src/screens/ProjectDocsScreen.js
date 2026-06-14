@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Sharing from 'expo-sharing';
 import { auth, db, storage } from '../config/firebase';
@@ -21,16 +21,40 @@ export default function ProjectDocsScreen({ route, navigation }) {
         
         const docsRef = collection(db, 'projects', projectId, 'docs');
         const unsub = onSnapshot(docsRef, async (snapshot) => {
-            const temp = [];
-            for (const d of snapshot.docs) {
-                const data = d.data();
-                try {
-                    const url = await getDownloadURL(ref(storage, data.storagePath));
-                    temp.push({ id: d.id, ...data, url });
-                } catch(e) {}
-            }
+            let temp = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
             temp.sort((a,b) => b.addedAt - a.addedAt);
             setDocs(temp);
+            setLoading(false);
+
+            // Fetch URLs asynchronoulsy
+            temp.forEach(async (docItem) => {
+                if (!docItem.url && docItem.storagePath) {
+                    try {
+                        const url = await getDownloadURL(ref(storage, docItem.storagePath));
+                        setDocs(prev => {
+                            const next = [...prev];
+                            const idx = next.findIndex(d => d.id === docItem.id);
+                            if (idx !== -1) {
+                                next[idx] = { ...next[idx], url };
+                            }
+                            return next;
+                        });
+                    } catch(e) {
+                        console.error("Erreur getDownloadURL:", e.code, e.message);
+                        setDocs(prev => {
+                            const next = [...prev];
+                            const idx = next.findIndex(d => d.id === docItem.id);
+                            if (idx !== -1) {
+                                next[idx] = { ...next[idx], urlError: e.message || 'Erreur réseau/CORS' };
+                            }
+                            return next;
+                        });
+                    }
+                }
+            });
+        }, (error) => {
+            console.error("Erreur Firestore onSnapshot (docs):", error);
+            Alert.alert("Erreur", "Impossible de charger les documents.");
             setLoading(false);
         });
         return () => unsub();
@@ -52,53 +76,10 @@ export default function ProjectDocsScreen({ route, navigation }) {
             // match /projects/{projectId}/documents/{allPaths=**}
             const storagePath = `projects/${projectId}/documents/${Date.now()}_${safeName}`;
             
-            if (Platform.OS === 'web') {
-                const blob = file.file || await (await fetch(file.uri)).blob();
-                await uploadBytes(ref(storage, storagePath), blob);
-            } else {
-                // SOLUTION ARCHITECTURALE DÉFINITIVE (Manuel Firebase Resumable Upload)
-                // 1. On initie l'upload avec un fetch HTTP standard (Léger, aucun Blob, passe les règles Firebase Auth)
-                const bucket = storage.app.options.storageBucket;
-                const initUrl = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o?name=${encodeURIComponent(storagePath)}`;
-                
-                const token = auth.currentUser ? await auth.currentUser.getIdToken() : '';
-                
-                const initResponse = await fetch(initUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'x-goog-upload-protocol': 'resumable',
-                        'x-goog-upload-command': 'start',
-                        'Authorization': `Firebase ${token}` /* Indispensable pour que Firebase lise le token */
-                    },
-                    body: JSON.stringify({ contentType: file.mimeType || 'application/octet-stream' })
-                });
-                
-                if (!initResponse.ok) {
-                    throw new Error("Impossible de démarrer l'upload: " + await initResponse.text());
-                }
-                
-                const uploadUrl = initResponse.headers.get('x-goog-upload-url');
-                
-                if (!uploadUrl) {
-                    throw new Error("URL Resumable manquante retournée par Firebase.");
-                }
-                
-                // 2. On envoie physiquement le fichier en streaming avec le moteur Natif Expo FileSystem.
-                // Contourne 100% les limites de mémoire de React Native (les "Network request failed" sur gros Blob)
-                const uploadResult = await FileSystem.uploadAsync(uploadUrl, file.uri, {
-                    httpMethod: 'PUT',
-                    uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                    headers: {
-                        'x-goog-upload-command': 'upload, finalize',
-                        'x-goog-upload-offset': '0'
-                    }
-                });
-                
-                if (uploadResult.status !== 200) {
-                    throw new Error("Erreur de transfert natif: " + uploadResult.body);
-                }
-            }
+            // Standard fetch upload with blob
+            const response = await fetch(file.uri);
+            const blob = await response.blob();
+            await uploadBytes(ref(storage, storagePath), blob);
             
             await addDoc(collection(db, 'projects', projectId, 'docs'), {
                 name: file.name,
@@ -123,26 +104,36 @@ export default function ProjectDocsScreen({ route, navigation }) {
             return;
         }
         if (Platform.OS === 'web') {
-            window.open(docItem.url, '_blank');
+            try {
+                const link = document.createElement('a');
+                link.href = docItem.url;
+                link.target = '_blank';
+                link.download = docItem.name;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } catch (e) {
+                window.open(docItem.url, '_blank');
+            }
             return;
         }
 
         try {
             Alert.alert("Téléchargement", "Ouverture du document en cours...");
             const safeName = docItem.name.replace(/[^a-zA-Z0-9.\-_]/g, '_');
-            const fileUri = FileSystem.cacheDirectory + safeName;
+            const targetFile = new File(Paths.cache, safeName);
             
-            const downloadObj = await FileSystem.downloadAsync(docItem.url, fileUri);
+            const downloadedFile = await File.downloadFileAsync(docItem.url, targetFile);
+            console.log("Fichier téléchargé :", downloadedFile.uri);
             
             if (Platform.OS === 'android') {
-                const contentUri = await FileSystem.getContentUriAsync(downloadObj.uri);
                 await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
-                    data: contentUri,
+                    data: downloadedFile.contentUri || downloadedFile.uri,
                     flags: 1,
                     type: docItem.mimeType || 'application/pdf'
                 });
             } else {
-                await Sharing.shareAsync(downloadObj.uri, { mimeType: docItem.mimeType || 'application/pdf' });
+                await Sharing.shareAsync(downloadedFile.uri, { mimeType: docItem.mimeType || 'application/pdf' });
             }
         } catch(e) {
             console.error("Open Doc Error", e);
@@ -166,8 +157,8 @@ export default function ProjectDocsScreen({ route, navigation }) {
 
     const renderItem = ({ item }) => {
         const isPdf = item.mimeType?.includes('pdf') || item.name.toLowerCase().endsWith('.pdf');
-        const iconName = isPdf ? 'document-text' : 'image';
-        const iconColor = isPdf ? '#d32f2f' : '#7b1fa2';
+        const iconName = item.urlError ? 'warning' : (isPdf ? 'document-text' : 'image');
+        const iconColor = item.urlError ? '#ff4444' : (isPdf ? '#d32f2f' : '#7b1fa2');
         const sizeMb = (item.size / (1024 * 1024)).toFixed(2);
 
         return (
@@ -178,6 +169,18 @@ export default function ProjectDocsScreen({ route, navigation }) {
                 <View style={styles.cardContent}>
                     <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
                     <Text style={styles.cardSub}>Ajouté le: {new Date(item.addedAt).toLocaleDateString()} • {sizeMb} MB</Text>
+                    {item.urlError && (
+                        <TouchableOpacity onPress={() => {
+                            if (Platform.OS === 'web') {
+                                window.alert("Erreur:\n" + item.urlError);
+                            } else {
+                                Alert.alert("Erreur", item.urlError);
+                            }
+                        }}>
+                            <Text style={{color: '#ff4444', fontSize: 12, marginTop: 5, fontWeight: 'bold'}}>⚠️ Voir l'erreur</Text>
+                        </TouchableOpacity>
+                    )}
+                    {!item.url && !item.urlError && <Text style={{color: theme.colors.primary, fontSize: 10, marginTop: 2}}>Chargement du lien...</Text>}
                 </View>
                 <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeleteDocument(item)}>
                     <Ionicons name="trash-outline" size={24} color="#d32f2f" />

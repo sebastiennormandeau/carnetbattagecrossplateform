@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, Alert, TouchableOpacity, Platform } from 'react-native';
 import { WebView } from 'react-native-webview';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import { doc, onSnapshot, collection, addDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
@@ -10,6 +10,7 @@ import { theme } from '../theme/Theme';
 export default function ProjectPlanScreen({ route, navigation }) {
   const { projectId, projectName } = route.params;
   const webViewRef = useRef(null);
+  const iframeRef = useRef(null);
   
   const [loading, setLoading] = useState(true);
   const [pdfUrl, setPdfUrl] = useState(null);
@@ -35,18 +36,26 @@ export default function ProjectPlanScreen({ route, navigation }) {
           try {
             const url = await getDownloadURL(ref(storage, data.planPdfPath));
             
-            // Download to local cache to bypass WebView CORS
-            const fileUri = FileSystem.cacheDirectory + 'current_plan_' + projectId + '.pdf';
-            const { uri } = await FileSystem.downloadAsync(url, fileUri);
-            
-            // Read as Base64 to inject directly into the WebView's memory
-            const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-            const dataUri = `data:application/pdf;base64,${base64}`;
-            
-            setPdfUrl(dataUri);
+            if (Platform.OS === 'web') {
+               setPdfUrl(url);
+            } else {
+               const fileName = 'current_plan_' + projectId + '.pdf';
+               const targetFile = new File(Paths.cache, fileName);
+               const downloadedFile = await File.downloadFileAsync(url, targetFile);
+               
+               // Lire en Base64 pour pdf.js
+               const base64 = await downloadedFile.base64();
+               const dataUri = `data:application/pdf;base64,${base64}`;
+               
+               setPdfUrl(dataUri);
+            }
           } catch (error) {
             console.error("PDF Fetch Error:", error);
-            Alert.alert("Erreur", "Impossible de charger le document PDF.");
+            if (Platform.OS === 'web') {
+                window.alert("Erreur: Impossible de charger le document PDF.\n" + error.message);
+            } else {
+                Alert.alert("Erreur", "Impossible de charger le document PDF.");
+            }
           }
         }
       }
@@ -132,19 +141,28 @@ export default function ProjectPlanScreen({ route, navigation }) {
         }
     }
     
-    if (webViewRef.current && pdfUrl) {
+    if (pdfUrl) {
        const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage).map(h => ({
            ...h,
            pileId: resolvePileId(h) // Inject resolved ID
        }));
        const script = `if (typeof updateMarkers === 'function') { updateMarkers(${JSON.stringify(pageHotspots)}, ${JSON.stringify(piles)}, '${mode}', '${movingHotspotId || ''}', ${JSON.stringify(highlightPiles)}); } true;`;
-       webViewRef.current.injectJavaScript(script);
+       
+       if (Platform.OS === 'web' && iframeRef.current && iframeRef.current.contentWindow) {
+           try {
+               iframeRef.current.contentWindow.eval(script);
+           } catch (e) {
+               console.log("Iframe JS injection error:", e);
+           }
+       } else if (webViewRef.current) {
+           webViewRef.current.injectJavaScript(script);
+       }
     }
   }, [hotspots, piles, mode, currentPage, pdfUrl, movingHotspotId, highlightPiles]);
 
   const handleMessage = async (event) => {
     try {
-      const data = JSON.parse(event.nativeEvent.data);
+      const data = typeof event.nativeEvent.data === 'string' ? JSON.parse(event.nativeEvent.data) : event.nativeEvent.data;
       if (data.type === 'TAP') {
          const { xNorm, yNorm } = data;
          if (mode === 'ADD') {
@@ -176,7 +194,11 @@ export default function ProjectPlanScreen({ route, navigation }) {
                });
                navigation.setParams({ placePileId: null });
                setMode('NAV');
-               Alert.alert("Succès", "Le pieu a été replacé sur le plan !");
+               if (Platform.OS === 'web') {
+                   window.alert("Succès: Le pieu a été replacé sur le plan !");
+               } else {
+                   Alert.alert("Succès", "Le pieu a été replacé sur le plan !");
+               }
             }
          } else {
             const pageHotspots = hotspots.filter(h => h.pageIndex === currentPage);
@@ -252,6 +274,22 @@ export default function ProjectPlanScreen({ route, navigation }) {
     }
   };
 
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      const handleWebMessage = (event) => {
+        if (!event.data || typeof event.data !== 'string') return;
+        try {
+           const parsed = JSON.parse(event.data);
+           if (parsed.type === 'TAP' || parsed.type === 'PAGE_CHANGED' || parsed.type === 'READY') {
+               handleMessage({ nativeEvent: { data: event.data } });
+           }
+        } catch (e) {}
+      };
+      window.addEventListener('message', handleWebMessage);
+      return () => window.removeEventListener('message', handleWebMessage);
+    }
+  });
+
   const getHtmlContent = (url) => `
     <!DOCTYPE html>
     <html>
@@ -260,10 +298,13 @@ export default function ProjectPlanScreen({ route, navigation }) {
       <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
       <style>
         body { margin: 0; padding: 0; background: #101010; display: flex; flex-direction: column; align-items: center; min-height: 100vh; overflow: auto; }
-        #viewer-container { position: relative; display: inline-block; box-shadow: 0 4px 8px rgba(0,0,0,0.5); font-size: 0; line-height: 0; }
+        #viewer-container { position: relative; display: inline-block; box-shadow: 0 4px 8px rgba(0,0,0,0.5); font-size: 0; line-height: 0; transform-origin: 0 0; transition: transform 0.2s ease; }
         canvas { display: block; width: 100vw; height: auto; }
         #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
         .marker { position: absolute; width: 22px; height: 22px; border-radius: 11px; margin-left: -11px; margin-top: -11px; border: 2px solid white; box-sizing: border-box; box-shadow: 0 2px 4px rgba(0,0,0,0.4); transform-origin: center center; }
+        #web-zoom-controls { position: fixed; bottom: 20px; right: 20px; display: flex; flex-direction: column; gap: 10px; z-index: 2000; }
+        .zoom-btn { width: 40px; height: 40px; border-radius: 20px; background: rgba(33, 150, 243, 0.9); color: white; font-size: 24px; font-weight: bold; border: none; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; }
+        .zoom-btn:hover { background: rgba(30, 136, 229, 1); }
         @keyframes pulse {
             0% { transform: scale(1); box-shadow: 0 0 15px rgba(233, 30, 99, 0.7); }
             50% { transform: scale(1.6); box-shadow: 0 0 30px rgba(233, 30, 99, 1); }
@@ -275,6 +316,11 @@ export default function ProjectPlanScreen({ route, navigation }) {
       <div id="viewer-container">
         <canvas id="the-canvas"></canvas>
         <div id="overlay"></div>
+      </div>
+      
+      <div id="web-zoom-controls">
+        <button class="zoom-btn" onclick="zoomIn()">+</button>
+        <button class="zoom-btn" onclick="zoomOut()">-</button>
       </div>
 
       <script>
@@ -290,19 +336,57 @@ export default function ProjectPlanScreen({ route, navigation }) {
             overlay = document.getElementById('overlay');
             
         let currentVisualScale = 1.0;
+        let internalWebZoom = 1.0; // Specific for the internal web zoom buttons
         
-        function updateMarkerScales() {
-            if (window.visualViewport) {
-                currentVisualScale = window.visualViewport.scale;
-                document.querySelectorAll('.marker').forEach(m => {
-                    m.style.transform = 'scale(' + (1 / currentVisualScale) + ')';
-                });
-            }
+        function zoomIn() {
+            internalWebZoom += 0.5;
+            document.getElementById('viewer-container').style.transform = 'scale(' + internalWebZoom + ')';
+            updateMarkerScales();
         }
         
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', updateMarkerScales);
-            window.visualViewport.addEventListener('scroll', updateMarkerScales);
+        function zoomOut() {
+            internalWebZoom = Math.max(1.0, internalWebZoom - 0.5);
+            document.getElementById('viewer-container').style.transform = 'scale(' + internalWebZoom + ')';
+            updateMarkerScales();
+        }
+
+        function getScale() {
+            let externalScale = 1.0;
+            try {
+                if (window.parent && window.parent !== window && window.parent.visualViewport) {
+                    externalScale = window.parent.visualViewport.scale;
+                }
+            } catch(e) {}
+            if (window.visualViewport) {
+                externalScale = Math.max(externalScale, window.visualViewport.scale);
+            }
+            return externalScale * internalWebZoom;
+        }
+
+        function updateMarkerScales() {
+            currentVisualScale = getScale();
+            document.querySelectorAll('.marker').forEach(m => {
+                const baseScale = parseFloat(m.dataset.baseScale || "1.0");
+                m.style.transform = 'scale(' + (baseScale / currentVisualScale) + ')';
+            });
+        }
+        
+        try {
+            if (window.parent && window.parent !== window && window.parent.visualViewport) {
+                window.parent.visualViewport.addEventListener('resize', updateMarkerScales);
+                window.parent.visualViewport.addEventListener('scroll', updateMarkerScales);
+            } else if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', updateMarkerScales);
+                window.visualViewport.addEventListener('scroll', updateMarkerScales);
+            }
+        } catch(e) {}
+
+        function sendMsg(data) {
+           if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify(data));
+           } else {
+              window.parent.postMessage(JSON.stringify(data), '*');
+           }
         }
 
         function renderPage(num) {
@@ -328,7 +412,7 @@ export default function ProjectPlanScreen({ route, navigation }) {
             });
           });
 
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'PAGE_CHANGED', pageIndex: num - 1 }));
+          sendMsg({ type: 'PAGE_CHANGED', pageIndex: num - 1 });
         }
 
         function queueRenderPage(num) {
@@ -348,7 +432,7 @@ export default function ProjectPlanScreen({ route, navigation }) {
 
         pdfjsLib.getDocument('${url}').promise.then(function(pdfDoc_) {
           pdfDoc = pdfDoc_;
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'READY', totalPages: pdfDoc.numPages }));
+          sendMsg({ type: 'READY', totalPages: pdfDoc.numPages });
           renderPage(pageNum);
         }).catch(err => console.error("PDF.js Load Error:", err));
 
@@ -358,13 +442,13 @@ export default function ProjectPlanScreen({ route, navigation }) {
           const xNorm = e.offsetX / this.offsetWidth;
           const yNorm = e.offsetY / this.offsetHeight;
           
-          window.ReactNativeWebView.postMessage(JSON.stringify({
+          sendMsg({
             type: 'TAP',
             xNorm: xNorm,
             yNorm: yNorm,
             rawX: e.clientX,
             rawY: e.clientY
-          }));
+          });
         });
 
         window.updateMarkers = function(hotspots, piles, mode, movingHotspotId, highlightPiles = []) {
@@ -407,17 +491,20 @@ export default function ProjectPlanScreen({ route, navigation }) {
                  div.style.borderWidth = '4px';
                  div.style.boxShadow = '0 0 10px #FFEB3B';
                  div.style.zIndex = '1000';
+                 div.dataset.baseScale = "1.2";
                  div.style.transform = 'scale(' + (1.2 / currentVisualScale) + ')';
              } else if (isHighlighted) {
                  div.style.borderColor = '#E91E63'; // Magenta
                  div.style.borderWidth = '5px';
                  div.style.boxShadow = '0 0 25px #E91E63';
                  div.style.zIndex = '999';
+                 div.dataset.baseScale = "1.5";
                  div.style.transform = 'scale(' + (1.5 / currentVisualScale) + ')';
                  // Appliquer une animation CSS clignotante via keyframes existante ou transition
                  div.style.animation = 'pulse 1.5s infinite';
              } else {
-                 div.style.transform = 'scale(' + (1 / currentVisualScale) + ')';
+                 div.dataset.baseScale = "1.0";
+                 div.style.transform = 'scale(' + (1.0 / currentVisualScale) + ')';
              }
              
              overlay.appendChild(div);
@@ -463,7 +550,12 @@ export default function ProjectPlanScreen({ route, navigation }) {
             if (currentPage > 0) {
                const newPage = currentPage - 1;
                setCurrentPage(newPage);
-               if (webViewRef.current) webViewRef.current.injectJavaScript(`if(window.changePage) window.changePage(${newPage + 1}); true;`);
+               const script = `if(window.changePage) window.changePage(${newPage + 1}); true;`;
+               if (Platform.OS === 'web' && iframeRef.current && iframeRef.current.contentWindow) {
+                   try { iframeRef.current.contentWindow.eval(script); } catch(e) {}
+               } else if (webViewRef.current) {
+                   webViewRef.current.injectJavaScript(script);
+               }
             }
         }}>
           <Text style={styles.pageBtnText}>◀</Text>
@@ -473,7 +565,12 @@ export default function ProjectPlanScreen({ route, navigation }) {
             if (currentPage < totalPages - 1) {
                const newPage = currentPage + 1;
                setCurrentPage(newPage);
-               if (webViewRef.current) webViewRef.current.injectJavaScript(`if(window.changePage) window.changePage(${newPage + 1}); true;`);
+               const script = `if(window.changePage) window.changePage(${newPage + 1}); true;`;
+               if (Platform.OS === 'web' && iframeRef.current && iframeRef.current.contentWindow) {
+                   try { iframeRef.current.contentWindow.eval(script); } catch(e) {}
+               } else if (webViewRef.current) {
+                   webViewRef.current.injectJavaScript(script);
+               }
             }
         }}>
           <Text style={styles.pageBtnText}>▶</Text>
@@ -483,6 +580,13 @@ export default function ProjectPlanScreen({ route, navigation }) {
       <View style={styles.pdfContainer}>
          {!pdfUrl ? (
             <Text style={{color: 'white', alignSelf:'center', marginTop: 20}}>Chargement du PDF...</Text>
+         ) : Platform.OS === 'web' ? (
+            <iframe
+               ref={iframeRef}
+               srcDoc={getHtmlContent(pdfUrl)}
+               style={{ flex: 1, border: 'none', backgroundColor: '#1E1E1E', width: '100%', height: '100%' }}
+               title="PDF Viewer"
+            />
          ) : (
             <WebView
               ref={webViewRef}
@@ -515,5 +619,5 @@ const styles = StyleSheet.create({
   pageBtn: { backgroundColor: '#333', paddingVertical: 6, paddingHorizontal: 15, borderRadius: 6 },
   pageBtnText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
   pageIndicatorText: { color: 'white', fontSize: 14, fontWeight: 'bold', minWidth: 50, textAlign: 'center' },
-  pdfContainer: { flex: 1 }
+  pdfContainer: { flex: 1, width: '100%', height: '100%' }
 });

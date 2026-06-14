@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { auth, db } from '../config/firebase';
-import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { theme } from '../theme/Theme';
 
@@ -44,6 +44,21 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email) {
+      Alert.alert('Erreur', 'Veuillez entrer votre adresse e-mail pour réinitialiser votre mot de passe.');
+      return;
+    }
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      Alert.alert('Succès', 'Un e-mail de réinitialisation de mot de passe a été envoyé à ' + email);
+    } catch (error) {
+      console.error("Password reset error:", error);
+      Alert.alert('Erreur', error.message);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Carnet Battage</Text>
@@ -77,6 +92,13 @@ export default function LoginScreen({ navigation }) {
         ) : (
           <Text style={styles.buttonText}>Se connecter</Text>
         )}
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.forgotPasswordButton} 
+        onPress={handleForgotPassword}
+      >
+        <Text style={styles.forgotPasswordText}>Mot de passe oublié ?</Text>
       </TouchableOpacity>
     </View>
   );
@@ -116,5 +138,14 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  forgotPasswordButton: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  forgotPasswordText: {
+    color: theme.colors.textMuted,
+    fontSize: 14,
+    textDecorationLine: 'underline',
   },
 });

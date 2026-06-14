@@ -87,6 +87,28 @@ export default function PileDetailScreen({ route, navigation }) {
     fetchPile();
   }, [projectId, pileId]);
 
+  // Reset zoom on web when entering this screen
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      let meta = document.querySelector('meta[name="viewport"]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.name = 'viewport';
+        document.head.appendChild(meta);
+      }
+      
+      // Force reset the scale to 1.0 by strictly limiting min and max scale
+      meta.content = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no';
+      
+      // Restore zoomability shortly after so the user isn't permanently locked
+      const timer = setTimeout(() => {
+        meta.content = 'width=device-width, initial-scale=1.0, maximum-scale=10.0, user-scalable=yes';
+      }, 500);
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
   const performSave = async () => {
     try {
       const pileRef = doc(db, 'projects', projectId, 'piles', pileId);
@@ -272,7 +294,7 @@ export default function PileDetailScreen({ route, navigation }) {
           <Picker
             selectedValue={shape}
             onValueChange={(itemValue) => setShape(itemValue)}
-            style={{ color: theme.colors.text }}
+            style={{ color: theme.colors.text, backgroundColor: theme.colors.surface }}
             dropdownIconColor={theme.colors.text}
           >
             {shapes.map((s, index) => (
@@ -286,7 +308,7 @@ export default function PileDetailScreen({ route, navigation }) {
           <Picker
             selectedValue={gauge}
             onValueChange={(itemValue) => setGauge(itemValue)}
-            style={{ color: theme.colors.text }}
+            style={{ color: theme.colors.text, backgroundColor: theme.colors.surface }}
             dropdownIconColor={theme.colors.text}
           >
             <Picker.Item label="Choisir..." value="" />

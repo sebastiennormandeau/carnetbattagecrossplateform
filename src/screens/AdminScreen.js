@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc } from 'firebase/firestore';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { db, auth } from '../config/firebase';
@@ -12,6 +12,8 @@ import { getTenantQuery, requireTenant, setTenantDoc } from '../utils/firestore-
 import { theme } from '../theme/Theme';
 import { SMART_PILING_LOGO_BASE64 } from '../config/smartPilingLogoBase64';
 import usePilingStore from '../store/usePilingStore';
+import TenantSwitcher from '../components/TenantSwitcher';
+import { migrateOldDataToVibeCodingMind } from '../utils/dataMigration';
 
 const TEAM_COLORS = ['#34495e', '#e67e22', '#27ae60', '#c0392b', '#8e44ad', '#2980b9', '#f39c12', '#16a085'];
 
@@ -273,9 +275,10 @@ export default function AdminScreen({ navigation }) {
 
             const { uri } = await Print.printToFileAsync({ html });
             const stamp = new Date().toISOString().replace(/[:.]/g, '').substring(0, 15);
-            const newPath = FileSystem.cacheDirectory + `SommairePaie_${stamp}.pdf`;
-            await FileSystem.moveAsync({ from: uri, to: newPath });
-            await Sharing.shareAsync(newPath, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'Partager le rapport' });
+            const newFile = new File(Paths.cache, `SommairePaie_${stamp}.pdf`);
+            const oldFile = new File(uri);
+            oldFile.move(newFile);
+            await Sharing.shareAsync(newFile.uri, { UTI: '.pdf', mimeType: 'application/pdf', dialogTitle: 'Partager le rapport' });
         } catch (e) {
             console.error("PDF Export Crash:", e);
             Alert.alert("Erreur Système", "L'opération a échoué.\nDétails: " + e.message);
@@ -291,6 +294,20 @@ export default function AdminScreen({ navigation }) {
                 <Text style={styles.headerTitle}>Panneau Administrateur</Text>
             </View>
 
+            <TenantSwitcher />
+            
+            <View style={{ padding: 15, backgroundColor: theme.colors.surface, marginHorizontal: 20, borderRadius: 10, marginBottom: 15 }}>
+                <Text style={{ color: 'white', marginBottom: 10, fontWeight: 'bold' }}>Outils de Migration (Temporaire)</Text>
+                <Text style={{ color: theme.colors.textMuted, fontSize: 12, marginBottom: 15 }}>
+                    Utilisez ce bouton pour réaffecter tous les anciens projets et données (sans compagnie ou avec une ancienne compagnie) à votre compagnie actuelle.
+                </Text>
+                <TouchableOpacity 
+                    style={{ backgroundColor: theme.colors.primary, padding: 12, borderRadius: 8, alignItems: 'center' }}
+                    onPress={migrateOldDataToVibeCodingMind}
+                >
+                    <Text style={{ color: 'white', fontWeight: 'bold' }}>Lier les anciennes données à cette compagnie</Text>
+                </TouchableOpacity>
+            </View>
             <View style={styles.tabContainer}>
                 <TouchableOpacity 
                     style={[styles.tab, selectedTab === 'USERS' && styles.activeTab]} 

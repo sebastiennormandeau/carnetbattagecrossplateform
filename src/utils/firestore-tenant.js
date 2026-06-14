@@ -23,6 +23,13 @@ export const requireTenant = () => {
 };
 
 /**
+ * Récupère le companyId actuel sans lever d'erreur s'il est manquant.
+ */
+export const getActiveCompanyId = () => {
+  return activeCompanyId;
+};
+
+/**
  * Wrapper sécurisé pour `addDoc`. Injecte automatiquement le `companyId`.
  */
 export const addTenantDoc = async (collectionRef, data) => {

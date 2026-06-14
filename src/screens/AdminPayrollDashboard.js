@@ -144,7 +144,17 @@ export default function AdminPayrollDashboard() {
             return;
         }
 
-        const result = await exportToPayrollCSV(approvedEntries);
+        const enrichedEntries = approvedEntries.map(entry => {
+             const user = users.find(u => u.id === entry.employeeId);
+             const project = projects.find(p => p.id === entry.projectId);
+             return {
+                 ...entry,
+                 employeeName: user ? user.name : entry.employeeId,
+                 projectName: project ? project.name : entry.projectId
+             };
+        });
+
+        const result = await exportToPayrollCSV(enrichedEntries);
         if (result.success) {
             Alert.alert("Succès", "Exportation CSV réussie.");
         } else {
