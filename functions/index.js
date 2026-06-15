@@ -139,6 +139,52 @@ exports.syncPayrollData = onCall(async (request) => {
 });
 
 /**
+ * NOTIFICATIONS PUSH
+ * Envoie une notification aux appareils ciblés via Firebase Cloud Messaging.
+ */
+exports.sendAssignmentNotification = onCall(async (request) => {
+    const payload = request.data;
+    const auth = request.auth;
+
+    if (!auth) {
+        throw new HttpsError("unauthenticated", "Vous devez être connecté.");
+    }
+
+    const { tokens, title, body, data } = payload;
+
+    if (!tokens || !Array.isArray(tokens) || tokens.length === 0) {
+        throw new HttpsError("invalid-argument", "Aucun token valide fourni.");
+    }
+
+    const message = {
+        tokens: tokens,
+        notification: {
+            title: title || 'Nouvelle notification',
+            body: body || ''
+        },
+        data: data || {}
+    };
+
+    try {
+        const response = await admin.messaging().sendEachForMulticast(message);
+        console.log(`Notification envoyée à ${response.successCount} appareils, ${response.failureCount} échecs.`);
+        
+        if (response.failureCount > 0) {
+            response.responses.forEach((resp, idx) => {
+                if (!resp.success) {
+                    console.error(`Échec pour le token ${tokens[idx]}:`, resp.error);
+                }
+            });
+        }
+        
+        return { success: true, successCount: response.successCount, failureCount: response.failureCount };
+    } catch (error) {
+        console.error('Erreur lors de l\'envoi de la notification:', error);
+        throw new HttpsError('internal', 'Erreur lors de l\'envoi de la notification FCM.');
+    }
+});
+
+/**
  * ADAPTATEUR DE PAIE (Strategy Pattern)
  * Calcule la paie de manière agnostique.
  */

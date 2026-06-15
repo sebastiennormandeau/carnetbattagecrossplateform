@@ -8,11 +8,25 @@ import { theme } from '../theme/Theme';
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const getFrenchErrorMessage = (errorCode) => {
+    switch (errorCode) {
+      case 'auth/invalid-email': return "L'adresse e-mail n'est pas valide.";
+      case 'auth/user-not-found': return "Aucun utilisateur trouvé avec cette adresse e-mail.";
+      case 'auth/wrong-password': return "Mot de passe incorrect.";
+      case 'auth/invalid-credential': return "Identifiants invalides. Veuillez vérifier votre courriel et mot de passe.";
+      case 'auth/too-many-requests': return "Trop de tentatives échouées. Veuillez réessayer plus tard.";
+      case 'auth/user-disabled': return "Ce compte a été désactivé par un administrateur.";
+      case 'auth/network-request-failed': return "Erreur réseau. Veuillez vérifier votre connexion internet.";
+      default: return "Une erreur est survenue lors de la connexion.";
+    }
+  };
 
   const handleLogin = async () => {
+    setErrorMsg('');
     if (!email || !password) {
-      Alert.alert('Erreur', 'Veuillez remplir tous les champs');
+      setErrorMsg('Veuillez remplir tous les champs');
       return;
     }
 
@@ -26,7 +40,7 @@ export default function LoginScreen({ navigation }) {
       
       if (userSnap.exists() && userSnap.data().banned === true) {
          await signOut(auth);
-         Alert.alert('Accès refusé', 'Votre compte a été banni par un administrateur.');
+         setErrorMsg('Votre compte a été banni par un administrateur.');
          return;
       }
       
@@ -38,15 +52,16 @@ export default function LoginScreen({ navigation }) {
 
     } catch (error) {
       console.error("Login error:", error);
-      Alert.alert('Erreur de connexion', error.message);
+      setErrorMsg(getFrenchErrorMessage(error.code));
     } finally {
       setLoading(false);
     }
   };
 
   const handleForgotPassword = async () => {
+    setErrorMsg('');
     if (!email) {
-      Alert.alert('Erreur', 'Veuillez entrer votre adresse e-mail pour réinitialiser votre mot de passe.');
+      setErrorMsg('Veuillez entrer votre adresse e-mail pour réinitialiser votre mot de passe.');
       return;
     }
 
@@ -55,7 +70,7 @@ export default function LoginScreen({ navigation }) {
       Alert.alert('Succès', 'Un e-mail de réinitialisation de mot de passe a été envoyé à ' + email);
     } catch (error) {
       console.error("Password reset error:", error);
-      Alert.alert('Erreur', error.message);
+      setErrorMsg(getFrenchErrorMessage(error.code));
     }
   };
 
@@ -63,6 +78,10 @@ export default function LoginScreen({ navigation }) {
     <View style={styles.container}>
       <Text style={styles.title}>Carnet Battage</Text>
       
+      {errorMsg ? (
+        <Text style={styles.errorText}>{errorMsg}</Text>
+      ) : null}
+
       <TextInput
         style={styles.input}
         placeholder="Adresse e-mail"
@@ -116,6 +135,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: theme.colors.primary,
     marginBottom: 40,
+    textAlign: 'center',
+  },
+  errorText: {
+    color: theme.colors.danger || 'red',
+    fontSize: 14,
+    marginBottom: 15,
     textAlign: 'center',
   },
   input: {

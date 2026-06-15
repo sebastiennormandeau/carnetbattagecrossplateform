@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Modal } from 'react-native';
 import useProjectStore from '../store/useProjectStore';
 import { theme } from '../theme/Theme';
+import CreateProjectModal from '../components/CreateProjectModal';
+import { Ionicons } from '@expo/vector-icons';
 
 const STATUS_COLUMNS = [
     { id: 'soumission', title: 'À soumissionner' },
@@ -11,10 +13,16 @@ const STATUS_COLUMNS = [
 ];
 
 export default function ProjectsCRMScreen({ navigation }) {
-    const { projects, updateProjectStatus, userRole } = useProjectStore();
+    const { projects, updateProjectStatus, userRole, initializeData, cleanup } = useProjectStore();
     const isAdmin = userRole === 'admin';
     const [selectedProject, setSelectedProject] = useState(null);
     const [isStatusModalVisible, setIsStatusModalVisible] = useState(false);
+    const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+
+    useEffect(() => {
+        initializeData();
+        return () => cleanup();
+    }, []);
 
     const getProjectsByStatus = (statusId) => {
         return projects.filter(p => p.status === statusId || (!p.status && statusId === 'standby'));
@@ -101,6 +109,15 @@ export default function ProjectsCRMScreen({ navigation }) {
                     </View>
                 </View>
             </Modal>
+
+            {isAdmin && (
+                <>
+                    <CreateProjectModal visible={isCreateModalVisible} onClose={() => setIsCreateModalVisible(false)} />
+                    <TouchableOpacity style={styles.fab} onPress={() => setIsCreateModalVisible(true)}>
+                        <Ionicons name="add" size={30} color="#fff" />
+                    </TouchableOpacity>
+                </>
+            )}
         </View>
     );
 }
@@ -237,5 +254,21 @@ const styles = StyleSheet.create({
         color: theme.colors.error,
         textAlign: 'center',
         fontWeight: 'bold',
+    },
+    fab: {
+        position: 'absolute',
+        bottom: 20,
+        right: 20,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: theme.colors.primary,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 3,
+        elevation: 5,
     }
 });

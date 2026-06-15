@@ -4,7 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc } from 'firebase/firestore';
 import { auth, db } from './src/config/firebase';
-import { registerForPushNotificationsAsync } from './src/utils/pushNotifications';
+import { registerForPushNotificationsAsync, setupPushListeners } from './src/utils/pushNotifications';
 import { setTenant } from './src/utils/firestore-tenant';
 
 // Screens
@@ -37,6 +37,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Initialiser l'écouteur de notifications au premier plan
+    const unsubscribePush = setupPushListeners();
+
     // Listen for auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       
@@ -81,7 +84,10 @@ export default function App() {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (unsubscribePush) unsubscribePush();
+    };
   }, []);
 
   if (loading) {

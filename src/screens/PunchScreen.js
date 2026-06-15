@@ -44,7 +44,7 @@ export default function PunchScreen({ navigation }) {
                     });
                 } else {
                     const qOwner = query(getTenantQuery('projects'), where('ownerUid', '==', user.uid));
-                    const qAllowed = query(getTenantQuery('projects'), where('readUsers', 'array-contains', user.uid));
+                    const qAllowed = query(getTenantQuery('projects'), where('assignedUsers', 'array-contains', user.uid));
                     
                     let listO = [];
                     let listA = [];

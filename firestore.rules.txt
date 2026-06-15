@@ -33,6 +33,12 @@ service cloud.firestore {
       return (request.auth.token.companyId != null && get(/databases/$(database)/documents/projects/$(projectId)).data.companyId == request.auth.token.companyId) || isSuperAdmin();
     }
 
+    // Vérifie si l'utilisateur a l'outil Carnet activé
+    function hasCarnetAccess() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return !("tools" in userData) || !("carnet" in userData.tools) || userData.tools.carnet == true;
+    }
+
     match /users/{userId} {
       // Un utilisateur peut TOUJOURS lire ses propres infos, ou celles des autres de son entreprise
       allow read: if request.auth.uid == userId || (hasTenant() && isSameTenant(resource.data)) || isSuperAdmin(); 
@@ -54,41 +60,39 @@ service cloud.firestore {
       allow read: if hasTenant() && isSameTenant(resource.data) && (
                       isAdmin() || 
                       resource.data.ownerUid == request.auth.uid ||
-                      (request.auth.uid in resource.data.assignedUsers) ||
-                      (request.auth.uid in resource.data.readUsers)
+                      (request.auth.uid in resource.data.assignedUsers)
                   );
                       
       allow update: if hasTenant() && isSameTenant(resource.data) && isSameTenant(request.resource.data) && (
                         isAdmin() || 
                         resource.data.ownerUid == request.auth.uid ||
-                        (request.auth.uid in resource.data.assignedUsers) ||
-                        (request.auth.uid in resource.data.writeUsers)
+                        (request.auth.uid in resource.data.assignedUsers)
                     );
       
       allow create: if hasTenant() && isSameTenant(request.resource.data);
       allow delete: if hasTenant() && isSameTenant(resource.data) && isAdmin();
 
       // SOUS-COLLECTIONS de Projects
-      // On vérifie que le projet parent appartient à l'entreprise
+      // On vérifie que le projet parent appartient à l'entreprise ET que l'utilisateur a l'accès Carnet (ou Admin)
       match /piles/{pileId} {
-        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
-        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
       }
       match /photos/{photoId} {
-        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
-        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
       }
       match /notes/{noteId} {
-        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
-        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
       }
       match /docs/{docId} {
-        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
-        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
       }
       match /hotspots/{hotspotId} {
-        allow read: if hasTenant() && parentProjectIsSameTenant(projectId);
-        allow write: if hasTenant() && parentProjectIsSameTenant(projectId);
+        allow read: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
+        allow write: if hasTenant() && parentProjectIsSameTenant(projectId) && (isAdmin() || (hasCarnetAccess() && isAssignedToProject(projectId)));
       }
     }
 

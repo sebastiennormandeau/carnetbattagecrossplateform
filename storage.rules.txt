@@ -18,25 +18,29 @@ service firebase.storage {
        return request.auth != null && (projectDoc.data.companyId == request.auth.token.companyId || isSuperAdmin());
     }
 
-    // Vérifie les droits de lecture (propriétaire, ou dans la liste readUsers, ou assignedUsers)
+    // Vérifie si l'utilisateur a l'outil Carnet activé
+    function hasCarnetAccess() {
+      let userData = firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+      return !("tools" in userData) || !("carnet" in userData.tools) || userData.tools.carnet == true;
+    }
+
+    // Vérifie les droits de lecture (propriétaire, ou assignedUsers + Carnet)
     function hasProjectReadAccess(projectId) {
        let projectDoc = firestore.get(/databases/(default)/documents/projects/$(projectId));
        return request.auth != null && 
               (
                  projectDoc.data.ownerUid == request.auth.uid || 
-                 (projectDoc.data.readUsers != null && request.auth.uid in projectDoc.data.readUsers) ||
-                 (projectDoc.data.assignedUsers != null && request.auth.uid in projectDoc.data.assignedUsers)
+                 (projectDoc.data.assignedUsers != null && request.auth.uid in projectDoc.data.assignedUsers && hasCarnetAccess())
               );
     }
     
-    // Vérifie les droits d'écriture (propriétaire ou dans la liste writeUsers, ou assignedUsers)
+    // Vérifie les droits d'écriture (propriétaire ou assignedUsers + Carnet)
     function hasProjectWriteAccess(projectId) {
        let projectDoc = firestore.get(/databases/(default)/documents/projects/$(projectId));
        return request.auth != null && 
               (
                  projectDoc.data.ownerUid == request.auth.uid || 
-                 (projectDoc.data.writeUsers != null && request.auth.uid in projectDoc.data.writeUsers) ||
-                 (projectDoc.data.assignedUsers != null && request.auth.uid in projectDoc.data.assignedUsers)
+                 (projectDoc.data.assignedUsers != null && request.auth.uid in projectDoc.data.assignedUsers && hasCarnetAccess())
               );
     }
 

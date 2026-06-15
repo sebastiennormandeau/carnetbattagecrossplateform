@@ -6,6 +6,11 @@ export default {
     "slug": "smart-piling",
     "owner": "vibe-coding-mind",
     "version": "1.0.0",
+    "extra": {
+      "eas": {
+        "projectId": "80dd4c4a-6b37-4e9e-9497-9403fdb745f2"
+      }
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.jpg",
     "userInterfaceStyle": "light",
@@ -49,11 +54,14 @@ export default {
       "expo-sharing",
       "expo-mail-composer",
       "@react-native-community/datetimepicker",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging",
       [
-        "expo-notifications",
+        "expo-build-properties",
         {
-          "icon": "./assets/icon.jpg",
-          "color": "#ffffff"
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ]
     ]

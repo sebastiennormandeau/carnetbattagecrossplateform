@@ -78,7 +78,7 @@ const useProjectStore = create((set, get) => ({
             await addTenantDoc(projectsRef, {
                 ...projectData,
                 isCCQ: projectData.isCCQ !== undefined ? projectData.isCCQ : true,
-                status: 'standby',
+                status: 'soumission',
                 assignedUsers: [],
                 ownerUid: currentUser.uid,
                 createdAt: new Date().toISOString()

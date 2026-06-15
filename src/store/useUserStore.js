@@ -15,21 +15,59 @@ const useUserStore = create((set, get) => ({
         try {
             const userRef = doc(db, 'users', uid);
             const userSnap = await getDoc(userRef);
+            
+            const authUser = getAuth().currentUser;
+            const authEmail = authUser ? authUser.email : null;
+
             if (userSnap.exists()) {
                 const userData = userSnap.data();
+                const emailToUse = userData.email || authEmail;
                 
                 // Auto-promotion du Super-Admin (SebastienNormandeau@gmail.com)
-                if (userData.email && userData.email.toLowerCase() === 'sebastiennormandeau@gmail.com' && !userData.isSuperAdmin) {
-                    await setDoc(userRef, { isSuperAdmin: true }, { merge: true });
+                if (emailToUse && emailToUse.toLowerCase() === 'sebastiennormandeau@gmail.com' && !userData.isSuperAdmin) {
+                    await setDoc(userRef, { isSuperAdmin: true, email: emailToUse }, { merge: true });
                     userData.isSuperAdmin = true;
+                    userData.email = emailToUse;
                 }
                 
-                set({ currentUserProfile: { id: userSnap.id, ...userData } });
+                set({ currentUserProfile: { id: userSnap.id, email: emailToUse, ...userData } });
             } else {
-                set({ currentUserProfile: null });
+                // S'il n'y a pas de document Firestore mais que c'est le super-admin
+                if (authEmail && authEmail.toLowerCase() === 'sebastiennormandeau@gmail.com') {
+                    const newAdminData = { isSuperAdmin: true, email: authEmail, role: 'admin' };
+                    await setDoc(userRef, newAdminData, { merge: true });
+                    set({ currentUserProfile: { id: uid, ...newAdminData } });
+                } else {
+                    set({ currentUserProfile: null });
+                }
             }
         } catch (error) {
             console.error("Erreur récupération profil courant:", error);
+        }
+    },
+
+    fetchAllTenants: async () => {
+        set({ isLoading: true, error: null });
+        try {
+            // Un super-admin peut récupérer tous les utilisateurs (pas de filtre where)
+            const q = query(collection(db, 'users'));
+            const querySnapshot = await getDocs(q);
+            
+            const tenantsSet = new Set();
+            querySnapshot.forEach((docRef) => {
+                const data = docRef.data();
+                if (data.companyId) {
+                    tenantsSet.add(data.companyId);
+                }
+            });
+
+            const tenantsList = Array.from(tenantsSet).sort();
+            set({ isLoading: false });
+            return tenantsList;
+        } catch (error) {
+            console.error("Erreur lors de la récupération des clients (tenants):", error);
+            set({ error: error.message, isLoading: false });
+            throw error;
         }
     },
 

@@ -24,12 +24,17 @@ LocaleConfig.locales['fr'] = {
 };
 LocaleConfig.defaultLocale = 'fr';
 
+const getLocalDateString = (date) => {
+    const offset = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offset).toISOString().split('T')[0];
+};
+
 const AdminCalendar = ({ route }) => {
     const { calendarEvents, projects, deleteProject } = useProjectStore();
     const bottomSheetRef = useRef(null);
     const navigation = useNavigation();
     
-    const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+    const [selectedDate, setSelectedDate] = useState(getLocalDateString(new Date()));
     const [viewMode, setViewMode] = useState('week'); // 'month' ou 'week'
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [projectToAssign, setProjectToAssign] = useState(null);
@@ -78,7 +83,7 @@ const AdminCalendar = ({ route }) => {
     const isDesktop = Platform.OS === 'web' && width > 800;
 
     const standbyProjects = useMemo(() => {
-        return projects.filter(p => p.status === 'standby');
+        return projects.filter(p => p.status === 'standby' || p.status === 'soumission');
     }, [projects]);
 
     // Marquer les jours qui ont des événements
@@ -238,34 +243,33 @@ const AdminCalendar = ({ route }) => {
                 </View>
             )}
 
-            <View style={{ flexDirection: isDesktop ? 'row' : 'column', flex: 1 }}>
-                <View style={{ flex: isDesktop ? 1 : undefined, maxWidth: isDesktop ? '50%' : '100%' }}>
-                    {/* Calendrier */}
-                    {viewMode === 'month' ? (
-                        <Calendar
-                            current={selectedDate}
-                            markingType={'multi-period'}
-                            onDayPress={(day) => {
-                                setSelectedDate(day.dateString);
-                            }}
-                            markedDates={markedDates}
-                            firstDay={1}
-                            theme={{
-                                backgroundColor: '#ffffff',
-                                calendarBackground: '#ffffff',
-                                textSectionTitleColor: '#b6c1cd',
-                                selectedDayBackgroundColor: '#2ecc71',
-                                selectedDayTextColor: '#ffffff',
-                                todayTextColor: '#2ecc71',
-                                dayTextColor: '#2d4150',
-                                textDisabledColor: '#d9e1e8',
-                                dotColor: '#2ecc71',
-                                selectedDotColor: '#ffffff',
-                                arrowColor: '#2ecc71',
-                                monthTextColor: '#2d4150',
-                            }}
-                        />
-                    ) : (
+            {(() => {
+                const CalendarContent = viewMode === 'month' ? (
+                    <Calendar
+                        current={selectedDate}
+                        markingType={'multi-period'}
+                        onDayPress={(day) => {
+                            setSelectedDate(day.dateString);
+                        }}
+                        markedDates={markedDates}
+                        firstDay={1}
+                        theme={{
+                            backgroundColor: '#ffffff',
+                            calendarBackground: '#ffffff',
+                            textSectionTitleColor: '#b6c1cd',
+                            selectedDayBackgroundColor: '#2ecc71',
+                            selectedDayTextColor: '#ffffff',
+                            todayTextColor: '#2ecc71',
+                            dayTextColor: '#2d4150',
+                            textDisabledColor: '#d9e1e8',
+                            dotColor: '#2ecc71',
+                            selectedDotColor: '#ffffff',
+                            arrowColor: '#2ecc71',
+                            monthTextColor: '#2d4150',
+                        }}
+                    />
+                ) : (
+                    <View style={{ height: 130, width: '100%' }}>
                         <CalendarProvider
                             date={selectedDate}
                             onDateChanged={(date) => setSelectedDate(date)}
@@ -273,7 +277,7 @@ const AdminCalendar = ({ route }) => {
                         >
                             <WeekCalendar
                                 firstDay={1}
-                                calendarWidth={isDesktop ? width / 2 : undefined}
+                                {...(isDesktop && { calendarWidth: width / 2 })}
                                 markingType={'multi-period'}
                                 markedDates={markedDates}
                                 theme={{
@@ -291,25 +295,40 @@ const AdminCalendar = ({ route }) => {
                                 }}
                             />
                         </CalendarProvider>
-                    )}
-                </View>
+                    </View>
+                );
 
-                {/* Liste des événements du jour */}
-                <View style={[styles.listContainer, isDesktop && { flex: 1, borderLeftWidth: 1, borderLeftColor: '#ecf0f1' }]}>
-                    <Text style={styles.listHeader}>Événements du {selectedDate}</Text>
-                    <FlatList
-                        data={selectedDayEvents}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderItem}
-                        contentContainerStyle={styles.flatListContent}
-                        ListEmptyComponent={
-                            <View style={styles.emptyContainer}>
-                                <Text style={styles.emptyText}>Aucun événement pour ce jour.</Text>
-                            </View>
-                        }
-                    />
-                </View>
-            </View>
+                const ListContent = (
+                    <View style={[styles.listContainer, isDesktop && { flex: 1, borderLeftWidth: 1, borderLeftColor: '#ecf0f1' }]}>
+                        <Text style={styles.listHeader}>Événements du {selectedDate}</Text>
+                        <FlatList
+                            data={selectedDayEvents}
+                            keyExtractor={(item) => item.id}
+                            renderItem={renderItem}
+                            contentContainerStyle={styles.flatListContent}
+                            ListEmptyComponent={
+                                <View style={styles.emptyContainer}>
+                                    <Text style={styles.emptyText}>Aucun événement pour ce jour.</Text>
+                                </View>
+                            }
+                        />
+                    </View>
+                );
+
+                return isDesktop ? (
+                    <View style={{ flexDirection: 'row', flex: 1 }}>
+                        <View style={{ flex: 1, maxWidth: '50%' }}>
+                            {CalendarContent}
+                        </View>
+                        {ListContent}
+                    </View>
+                ) : (
+                    <>
+                        {CalendarContent}
+                        {ListContent}
+                    </>
+                );
+            })()}
 
             {/* Panneau Stand-by */}
             <BottomSheet

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, Alert, ScrollView, ActivityIndicator, Switch } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, FlatList, Alert, ScrollView, ActivityIndicator, Switch, Platform } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { collection, doc, writeBatch, getDocs, getDoc, query, where } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -48,12 +48,9 @@ const AssignProjectModal = ({ visible, onClose, projectId }) => {
                 const projectRef = doc(db, 'projects', projectId);
                 const projectSnap = await getDoc(projectRef);
 
-                if (projectSnap.exists() && projectSnap.data().status === 'scheduled') {
-                    setIsEditing(true);
+                if (projectSnap.exists()) {
                     const pData = projectSnap.data();
-                    setSelectedColor(pData.colorCode || PROJECT_COLORS[0]);
-                    setSelectedUsers(pData.assignedUsers || []);
-
+                    
                     // 3. Charger les événements existants
                     const eventsQuery = getTenantQuery('calendar_events', where('projectId', '==', projectId));
                     const eventsSnap = await getDocs(eventsQuery);
@@ -70,16 +67,22 @@ const AssignProjectModal = ({ visible, onClose, projectId }) => {
                         if (!maxDate || eDate > maxDate) maxDate = eDate;
                     });
                     
-                    setExistingEvents(evts);
-                    if (minDate) setStartDate(minDate);
-                    if (maxDate) setEndDate(maxDate);
-                } else {
-                    setIsEditing(false);
-                    setExistingEvents([]);
-                    setStartDate(new Date());
-                    setEndDate(new Date());
-                    setSelectedColor(PROJECT_COLORS[0]);
-                    setSelectedUsers([]);
+                    if (evts.length > 0 || (pData.assignedUsers && pData.assignedUsers.length > 0)) {
+                        setIsEditing(true);
+                        setSelectedColor(pData.colorCode || PROJECT_COLORS[0]);
+                        setSelectedUsers(pData.assignedUsers || []);
+                        
+                        setExistingEvents(evts);
+                        if (minDate) setStartDate(minDate);
+                        if (maxDate) setEndDate(maxDate);
+                    } else {
+                        setIsEditing(false);
+                        setExistingEvents([]);
+                        setStartDate(new Date());
+                        setEndDate(new Date());
+                        setSelectedColor(PROJECT_COLORS[0]);
+                        setSelectedUsers([]);
+                    }
                 }
             } catch (error) {
                 console.error("Erreur chargement:", error);
@@ -153,10 +156,21 @@ const AssignProjectModal = ({ visible, onClose, projectId }) => {
             try {
                 const batch = writeBatch(db);
 
+                // Calcul du nouveau statut
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                let tempStartDate = new Date(startDate);
+                tempStartDate.setHours(0, 0, 0, 0);
+
+                let newStatus = 'standby'; // Par défaut, prêt à démarrer
+                if (tempStartDate <= today) {
+                    newStatus = 'actif'; // En cours
+                }
+
                 // 1. Mettre à jour le projet globalement
                 const projectRef = doc(db, 'projects', projectId);
                 batch.update(projectRef, {
-                    status: 'scheduled',
+                    status: newStatus,
                     colorCode: selectedColor,
                     assignedUsers: selectedUsers
                 });
@@ -245,36 +259,54 @@ const AssignProjectModal = ({ visible, onClose, projectId }) => {
                         <View style={styles.dateRow}>
                             <View style={{ flex: 1, marginRight: 5 }}>
                                 <Text style={styles.label}>Date de début</Text>
-                                <TouchableOpacity style={styles.dateBtn} onPress={() => setShowStartPicker(true)}>
-                                    <Text style={styles.dateBtnText}>{startDate.toLocaleDateString()}</Text>
-                                </TouchableOpacity>
+                                {Platform.OS === 'web' ? (
+                                    React.createElement('input', {
+                                        type: 'date',
+                                        value: startDate.toISOString().split('T')[0],
+                                        onChange: (e) => setStartDate(new Date(e.target.value)),
+                                        style: { padding: '10px', borderRadius: '8px', border: '1px solid #ecf0f1', width: '100%', boxSizing: 'border-box' }
+                                    })
+                                ) : (
+                                    <TouchableOpacity style={styles.dateBtn} onPress={() => setShowStartPicker(!showStartPicker)}>
+                                        <Text style={styles.dateBtnText}>{startDate.toLocaleDateString()}</Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                             <View style={{ flex: 1, marginLeft: 5 }}>
                                 <Text style={styles.label}>Date de fin</Text>
-                                <TouchableOpacity style={styles.dateBtn} onPress={() => setShowEndPicker(true)}>
-                                    <Text style={styles.dateBtnText}>{endDate.toLocaleDateString()}</Text>
-                                </TouchableOpacity>
+                                {Platform.OS === 'web' ? (
+                                    React.createElement('input', {
+                                        type: 'date',
+                                        value: endDate.toISOString().split('T')[0],
+                                        onChange: (e) => setEndDate(new Date(e.target.value)),
+                                        style: { padding: '10px', borderRadius: '8px', border: '1px solid #ecf0f1', width: '100%', boxSizing: 'border-box' }
+                                    })
+                                ) : (
+                                    <TouchableOpacity style={styles.dateBtn} onPress={() => setShowEndPicker(!showEndPicker)}>
+                                        <Text style={styles.dateBtnText}>{endDate.toLocaleDateString()}</Text>
+                                    </TouchableOpacity>
+                                )}
                             </View>
                         </View>
 
-                        {showStartPicker && (
+                        {Platform.OS !== 'web' && showStartPicker && (
                             <DateTimePicker
                                 value={startDate}
                                 mode="date"
                                 display="default"
                                 onChange={(event, date) => {
-                                    setShowStartPicker(false);
+                                    if (Platform.OS === 'android') setShowStartPicker(false);
                                     if (date) setStartDate(date);
                                 }}
                             />
                         )}
-                        {showEndPicker && (
+                        {Platform.OS !== 'web' && showEndPicker && (
                             <DateTimePicker
                                 value={endDate}
                                 mode="date"
                                 display="default"
                                 onChange={(event, date) => {
-                                    setShowEndPicker(false);
+                                    if (Platform.OS === 'android') setShowEndPicker(false);
                                     if (date) setEndDate(date);
                                 }}
                             />
